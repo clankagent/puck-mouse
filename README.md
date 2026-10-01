@@ -49,6 +49,10 @@ Pausing discards accumulated movement and releases held mouse buttons. Resuming,
 device changes and mapping changes require a fresh neutral report; silence is
 never interpreted as a neutral report.
 
+A gap in motion reports stops pointer and scroll output until fresh input arrives.
+It does not require releasing the cap or cancel a held mouse button. Movement
+from the missing interval is discarded, so there is no catch-up jump.
+
 If input processing fails, the app pauses and resets motion processing while
 keeping its controls available. Choose Resume when ready and release the cap
 to center to continue. If processing remains unavailable, the error explains

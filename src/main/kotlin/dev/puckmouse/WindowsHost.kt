@@ -63,13 +63,11 @@ class WindowsHost(private val state: ()->AppState, private val publish: ((AppSta
     private var window: WinDef.HWND?=null
     private var engine: PuckEngine?=null
     private val output=WindowsOutput()
-    private val fractions=OutputAccumulator()
-    private val gate=NeutralGate()
+    private val motion=LiveMotion()
     private var paused=true
     private var clutch=false
     private var preview=false
     private var simulated=Axes()
-    private var lastMotionAt=0.0
     private var selectedDevice: Long?=null
     private var registeredHotkey: Hotkey?=null
     private var hotkeyId=0x504c
@@ -126,7 +124,7 @@ class WindowsHost(private val state: ()->AppState, private val publish: ((AppSta
         }
     }
     private fun interrupt() {
-        gate.interrupt();fractions.clear();buttons.release();engine?.interrupt(time());publish {it.copy(armed=false,outputs=emptyMap())}
+        motion.interrupt();buttons.release();engine?.interrupt(time());publish {it.copy(armed=false,outputs=emptyMap())}
     }
     private fun registerHotkey() {
         val next=state().settings.hotkey
@@ -190,21 +188,19 @@ class WindowsHost(private val state: ()->AppState, private val publish: ((AppSta
         if(preview) return
         when(report) {
             is Report.Motion -> {
-                val now=time();lastMotionAt=now
+                val now=time()
                 publish {it.copy(axes=report.axes)}
                 if(paused || clutch) return
-                val wasArmed=gate.armed
-                if(gate.observeRealMotion(report.axes,buttons.allReleased())) {
-                    if(!wasArmed) {engine?.feed(now,report.axes);engine?.frame(now);fractions.clear();publish{it.copy(armed=true)}}
-                    engine?.feed(now,report.axes)
-                }
+                val wasArmed=motion.armed
+                motion.feed(engine,now,report.axes,buttons.allReleased())
+                if(!wasArmed && motion.armed) publish{it.copy(armed=true)}
             }
-            is Report.Buttons -> { val p=state().profile;buttons.report(report.mask,listOf(p.button1,p.button2),!paused && !clutch && gate.armed) }
+            is Report.Buttons -> { val p=state().profile;buttons.report(report.mask,listOf(p.button1,p.button2),!paused && !clutch && motion.armed) }
             null -> {}
         }
     }
     private fun fail(error: Throwable, recover: Boolean=true) {
-        paused=true;gate.interrupt();fractions.clear()
+        paused=true;motion.interrupt()
         try {buttons.release()} catch(_: Throwable) {}
         try {engine?.interrupt(time())} catch(_: Throwable) {}
         val recoveryError=if(recover) try {replaceEngine(state().profile);null} catch(e:Throwable){e} else null
@@ -246,13 +242,15 @@ class WindowsHost(private val state: ()->AppState, private val publish: ((AppSta
                 var budget=0
                 while(budget++<128 && User32.INSTANCE.PeekMessage(msg,null,0,0,1)) {User32.INSTANCE.TranslateMessage(msg);User32.INSTANCE.DispatchMessage(msg)}
                 try {
-                    timing!!.tick(::refreshDevices, { now ->
-                        // Silence is an interruption, never a manufactured neutral input.
-                        if(!preview && gate.armed && now-lastMotionAt>120 && !state().axes.neutral()) interrupt()
-                    }, { frameTime,feedbackDue ->
-                        val delta=engine?.frame(frameTime) ?: emptyMap()
-                        if(allowDesktopOutput && !preview && !paused && !clutch && gate.armed && selectedDevice!=null) output.motion(fractions.take(delta)) else fractions.clear()
-                        if(feedbackDue) {val rates=if(preview || gate.armed)engine?.rates() ?: emptyMap() else emptyMap();publish{it.copy(outputs=rates)}}
+                    timing!!.tick(::refreshDevices, {}, { frameTime,feedbackDue ->
+                        if(preview) engine?.frame(frameTime) else {
+                            val delta=motion.frame(engine,frameTime)
+                            if(allowDesktopOutput && !paused && !clutch && motion.armed && selectedDevice!=null) output.motion(delta)
+                        }
+                        if(feedbackDue) {
+                            val rates=if(preview || (motion.armed && motion.fresh(frameTime)))engine?.rates() ?: emptyMap() else emptyMap()
+                            publish{it.copy(outputs=rates)}
+                        }
                     })
                 } catch(e:Throwable) {fail(e)}
                 LockSupport.parkNanos(1_000_000)

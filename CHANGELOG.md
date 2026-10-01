@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.3-alpha.1
+
+- Stop brief gaps in motion reports from triggering “Release the cap to resume.”
+  Movement stops while reports are missing and continues on fresh input without
+  replaying accumulated movement. Held mouse buttons survive these gaps.
+- Keep fresh-neutral rearming after pause, disconnects and mapping changes.
+
 ## 0.1.2-alpha.1
 
 - Fix older frame timestamps being submitted after device-refresh or silence
