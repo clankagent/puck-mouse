@@ -6,6 +6,11 @@ internal class InputLoopTiming(private val clock: () -> Double) {
     private var devicesAt=frameAt
     private var feedbackAt=frameAt
 
+    fun reset() {
+        val now=clock()
+        frameAt=now;devicesAt=now;feedbackAt=now
+    }
+
     fun tick(refreshDevices: () -> Unit, checkSilence: (Double) -> Unit, frame: (Double,Boolean) -> Unit) {
         val observed=clock()
         if(observed-devicesAt>=2000) {

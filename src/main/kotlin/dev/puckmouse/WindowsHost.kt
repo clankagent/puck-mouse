@@ -75,6 +75,7 @@ class WindowsHost(private val state: ()->AppState, private val publish: ((AppSta
     private var hotkeyId=0x504c
     private var hotkeyError: String?=null
     private var processingError: String?=null
+    private var timing: InputLoopTiming?=null
     private var appliedProfile: Profile?=null
     private val configurationPending=AtomicBoolean(false)
     private val buttons=ButtonTracker({action,down -> if(!preview && allowDesktopOutput) output.button(action,down)}, {hold ->
@@ -117,6 +118,7 @@ class WindowsHost(private val state: ()->AppState, private val publish: ((AppSta
         try {
             replacement.frame(time())
             if(preview) {simulated=Axes();replacement.feed(time(),simulated);publish{it.copy(axes=simulated)}}
+            timing?.reset()
             engine=replacement;appliedProfile=profile
         } catch(error: Throwable) {
             try {replacement.close()} catch(_: Throwable) {}
@@ -238,13 +240,13 @@ class WindowsHost(private val state: ()->AppState, private val publish: ((AppSta
             rids[0].flags=0x100 or 0x2000;rids[0].window=window
             check(raw!!.RegisterRawInputDevices(rids,1,rid.size())) {"Could not register background SpaceMouse input"};rawRegistered=true
             registerHotkey();refreshDevices()
-            val msg=WinUser.MSG();val timing=InputLoopTiming(::time)
+            val msg=WinUser.MSG();timing=InputLoopTiming(::time)
             while(running.get()) {
                 var task=queue.poll();while(task!=null) {try{task()}catch(e:Throwable){fail(e)};task=queue.poll()}
                 var budget=0
                 while(budget++<128 && User32.INSTANCE.PeekMessage(msg,null,0,0,1)) {User32.INSTANCE.TranslateMessage(msg);User32.INSTANCE.DispatchMessage(msg)}
                 try {
-                    timing.tick(::refreshDevices, { now ->
+                    timing!!.tick(::refreshDevices, { now ->
                         // Silence is an interruption, never a manufactured neutral input.
                         if(!preview && gate.armed && now-lastMotionAt>120 && !state().axes.neutral()) interrupt()
                     }, { frameTime,feedbackDue ->
