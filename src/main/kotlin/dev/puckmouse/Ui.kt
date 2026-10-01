@@ -58,6 +58,7 @@ import java.awt.FileDialog
 import java.awt.Frame
 import java.nio.file.Path as FilePath
 import kotlin.math.abs
+import kotlin.math.ceil
 import kotlin.math.pow
 import kotlin.math.roundToInt
 import java.awt.event.KeyEvent as AwtKey
@@ -377,9 +378,10 @@ private fun MappingsScreen(state: AppState, controller: AppController, ask: (Dia
         }
         StatusNotice(state, controller)
     }
-    val list: @Composable (Modifier) -> Unit = { m -> MappingList(mappings, mapping.output, controller, m) { selected = it } }
+    val list: @Composable (Modifier) -> Unit = { m -> MappingList(mappings, mapping.output, profile::tuningLinked, controller, m) { selected = it } }
     val editor: @Composable (Modifier) -> Unit = { m ->
-        MappingEditor(mapping, mappings, state.axes[mapping.axis], state.connected || state.preview, advanced, { advanced = it }, controller, m, compact)
+        MappingEditor(mapping, mappings, profile.tuningLinked(mapping.output), state.axes[mapping.axis], state.connected || state.preview,
+            advanced, { advanced = it }, controller, m, compact)
     }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -455,7 +457,9 @@ private fun Notice(icon: ImageVector, accent: Color, title: String, body: String
 }
 
 @Composable
-private fun MappingList(mappings: List<Mapping>, selected: Output, controller: AppController, modifier: Modifier, onSelect: (Output) -> Unit) {
+private fun MappingList(
+    mappings: List<Mapping>, selected: Output, linked: (Output) -> Boolean, controller: AppController, modifier: Modifier, onSelect: (Output) -> Unit,
+) {
     Column(modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         SectionLabel("Outputs")
         mappings.forEach { m ->
@@ -473,9 +477,14 @@ private fun MappingList(mappings: List<Mapping>, selected: Output, controller: A
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(m.output.label, style = MaterialTheme.typography.titleSmall, color = if (m.enabled) PuckColors.Foreground else PuckColors.Secondary,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(if (!m.enabled) "Off" else listOfNotNull(m.axis.label, speedText(m.output, m.speed), if (m.inverted) "reversed" else null).joinToString(" · "),
+                    Text(if (!m.enabled) "Off" else listOfNotNull(m.axis.label, topSpeedText(m), if (m.inverted) "reversed" else null).joinToString(" · "),
                         style = MaterialTheme.typography.bodySmall, color = PuckColors.Secondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    if (shared) Text("Shared movement", style = MaterialTheme.typography.labelSmall, color = PuckColors.Paused)
+                    val isLinked = linked(m.output)
+                    if (shared || isLinked) Row(horizontalArrangement = Arrangement.spacedBy(Space.s)) {
+                        if (isLinked) Text("Tuning linked", style = MaterialTheme.typography.labelSmall, color = PuckColors.Secondary,
+                            modifier = Modifier.testTag("mapping-linked-${m.output.name}"))
+                        if (shared) Text("Shared movement", style = MaterialTheme.typography.labelSmall, color = PuckColors.Paused)
+                    }
                 }
                 Switch(m.enabled, { controller.updateMapping(m.copy(enabled = it)) }, colors = puckSwitchColors(),
                     modifier = Modifier.testTag("mapping-enabled-${m.output.name}").semantics { contentDescription = "${m.output.label} enabled" })
@@ -486,10 +495,11 @@ private fun MappingList(mappings: List<Mapping>, selected: Output, controller: A
 
 @Composable
 private fun MappingEditor(
-    m: Mapping, mappings: List<Mapping>, live: Double, hasLive: Boolean,
+    m: Mapping, mappings: List<Mapping>, linked: Boolean, live: Double, hasLive: Boolean,
     advanced: Boolean, onAdvanced: (Boolean) -> Unit, controller: AppController, modifier: Modifier, compact: Boolean,
 ) {
     val update: (Mapping) -> Unit = { next -> if (next != m) controller.updateMapping(next) }
+    val partner = m.output.partner().label
     Column(
         modifier.clip(MaterialTheme.shapes.medium).background(PuckColors.Surface).padding(if (compact) Space.l else Space.xl).testTag("mapping-editor"),
         verticalArrangement = Arrangement.spacedBy(Space.l),
@@ -499,6 +509,13 @@ private fun MappingEditor(
             Text(m.sentence(), style = MaterialTheme.typography.bodyMedium, color = PuckColors.Secondary)
         }
         ToggleRow("Enabled", "Turn off to stop this output but keep its settings.", m.enabled, "mapping-enabled") { update(m.copy(enabled = it)) }
+        ToggleRow(
+            if (m.output.isPointer) "Link pointer X/Y tuning" else "Link scroll X/Y tuning",
+            (if (linked) "Speed, dead zone, curve, full-speed point and smoothing are shared with $partner."
+            else "Turning on copies this tuning to $partner and keeps speed, dead zone, curve, full-speed point and smoothing shared.") +
+                " Movement, direction and on/off stay separate.",
+            linked, "link-tuning",
+        ) { controller.setTuningLinked(m.output, it) }
         HorizontalDivider(color = PuckColors.Line)
 
         Field("Movement") {
@@ -521,9 +538,25 @@ private fun MappingEditor(
         val range = speedRange(m.output)
         LabeledSlider(
             label = "Top speed", value = speedText(m.output, m.speed), tag = "speed-slider",
-            caption = if (m.output.isPointer) "How fast the pointer moves with the cap fully pushed." else "How fast the page scrolls with the cap fully pushed.",
+            caption = "Fastest ${if (m.output.isPointer) "pointer movement" else "scrolling"}, reached at the full-speed point" +
+                (if (m.fullSpeedAt < 1) " (${percent(m.fullSpeedAt)} push)." else " (full push)."),
             current = m.speed.toFloat().coerceIn(range), range = range,
         ) { update(m.copy(speed = roundSpeed(m.output, it.toDouble()))) }
+
+        if (m.output.isPointer) {
+            val preset = pointerTravelTuning(m)
+            val applied = m.withTuningFrom(preset) == m
+            Column(verticalArrangement = Arrangement.spacedBy(Space.xs)) {
+                OutlinedButton(onClick = { controller.applyPointerTravelPreset(m.output) }, enabled = !applied, shape = MaterialTheme.shapes.small,
+                    modifier = Modifier.testTag("pointer-travel-preset")) {
+                    if (applied) { Icon(Icons.Outlined.Check, null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(Space.s)) }
+                    Text("Precision + fast travel")
+                }
+                Text("Slow and precise near center, ${speedText(m.output, preset.speed)} from a ${percent(preset.fullSpeedAt)} push" +
+                    (if (linked) " — applies to both pointer directions." else ".") + " Keeps movement, direction and on/off.",
+                    style = MaterialTheme.typography.bodySmall, color = PuckColors.Secondary)
+            }
+        }
 
         ToggleRow("Reverse direction", "Use this if ${m.output.effectNoun()} moves the opposite way to your hand.", m.inverted, "invert-toggle") {
             update(m.copy(inverted = it))
@@ -540,7 +573,8 @@ private fun MappingEditor(
         ) {
             Column(Modifier.weight(1f)) {
                 Text("Fine tuning", style = MaterialTheme.typography.titleSmall)
-                Text("Dead zone ${percent(m.deadzone)} · Curve ${"%.2f".format(m.curve)} · Smoothing ${m.responseMs.roundToInt()} ms",
+                Text("Dead zone ${percent(m.deadzone)} · Curve ${"%.2f".format(m.curve)} · Full speed at ${percent(m.fullSpeedAt)} · " +
+                    "Smoothing ${m.responseMs.roundToInt()} ms",
                     style = MaterialTheme.typography.bodySmall, color = PuckColors.Secondary)
             }
             Icon(if (advanced) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore, null, tint = PuckColors.Secondary)
@@ -549,39 +583,62 @@ private fun MappingEditor(
             CurvePreview(m, live, hasLive)
             LabeledSlider("Dead zone", percent(m.deadzone), "deadzone-slider",
                 "Small movements inside this range are ignored, so a resting hand doesn't drift.",
-                m.deadzone.toFloat().coerceIn(0f, .5f), 0f..0.5f) { update(m.copy(deadzone = (it * 100).roundToInt() / 100.0)) }
+                m.deadzone.toFloat().coerceIn(0f, .5f), 0f..0.5f) {
+                val deadzone = (it * 100).roundToInt() / 100.0
+                update(m.copy(deadzone = deadzone, fullSpeedAt = maxOf(m.fullSpeedAt, fullSpeedFloor(deadzone))))
+            }
+            val floor = fullSpeedFloor(m.deadzone)
+            LabeledSlider("Full speed at", "${percent(m.fullSpeedAt)} push", "full-speed-slider",
+                "How far you push to reach top speed. Lower reaches it sooner; pushing further adds nothing.",
+                m.fullSpeedAt.toFloat().coerceIn(floor.toFloat(), 1f), floor.toFloat()..1f) {
+                update(m.copy(fullSpeedAt = ((it * 100).roundToInt() / 100.0).coerceIn(floor, 1.0)))
+            }
             LabeledSlider("Response curve", "%.2f · %s".format(m.curve, curveName(m.curve)), "curve-slider",
-                "Above 1 gives fine control near center and saves full speed for the edge. Below 1 reacts quickly to small pushes.",
-                m.curve.toFloat().coerceIn(.5f, 3f), .5f..3f) { update(m.copy(curve = (it * 20).roundToInt() / 20.0)) }
+                "Above 1 keeps small pushes slow for precision. Raising it alone also slows medium pushes — " +
+                    "use Full speed at and Top speed to keep travel fast. Below 1 reacts quickly to small pushes.",
+                m.curve.toFloat().coerceIn(.5f, 12f), .5f..12f) { update(m.copy(curve = (it * 20).roundToInt() / 20.0)) }
             LabeledSlider("Smoothing", "${m.responseMs.roundToInt()} ms", "smoothing-slider",
                 "Evens out shaky motion. Higher values feel steadier but react a little later.",
                 m.responseMs.toFloat().coerceIn(0f, 150f), 0f..150f) { update(m.copy(responseMs = (it / 5).roundToInt() * 5.0)) }
             val defaults = defaultMappings().first { it.output == m.output }
-            if (m.deadzone != defaults.deadzone || m.curve != defaults.curve || m.responseMs != defaults.responseMs) {
-                TextButton(onClick = { update(m.copy(deadzone = defaults.deadzone, curve = defaults.curve, responseMs = defaults.responseMs)) },
-                    modifier = Modifier.testTag("advanced-defaults")) { Text("Restore default fine tuning") }
+            val restored = m.copy(deadzone = defaults.deadzone, curve = defaults.curve, responseMs = defaults.responseMs, fullSpeedAt = defaults.fullSpeedAt)
+            if (restored != m) {
+                TextButton(onClick = { update(restored) }, modifier = Modifier.testTag("advanced-defaults")) { Text("Restore default fine tuning") }
             }
         }
     }
 }
 
-private fun response(x: Double, m: Mapping): Double =
-    if (x <= m.deadzone) 0.0 else ((x - m.deadzone) / (1 - m.deadzone)).coerceIn(0.0, 1.0).pow(m.curve)
+/** Lowest valid full-speed point for a dead zone, rounded up to whole percent so it always passes validation. */
+private fun fullSpeedFloor(deadzone: Double): Double = ceil(maxOf(.1, deadzone + .05) * 100 - 1e-6) / 100
+
+/** Same normalized response the engine applies: dead zone, linear ramp to the full-speed point, then the curve exponent. */
+private fun response(x: Double, m: Mapping): Double {
+    val span = m.fullSpeedAt - m.deadzone
+    return if (x <= m.deadzone || span <= 0) 0.0 else ((x - m.deadzone) / span).coerceIn(0.0, 1.0).pow(m.curve)
+}
+
+private fun speedAt(x: Double, m: Mapping): String {
+    val v = response(x, m) * m.speed
+    return if (m.output.isPointer) "${v.roundToInt()} ${m.output.unit}" else "%.1f ${m.output.unit}".format(v)
+}
 
 @Composable
 private fun CurvePreview(m: Mapping, live: Double, hasLive: Boolean) {
     val deflection = abs(live).coerceIn(0.0, 1.0)
+    val samples = listOf(.1, .3, .6)
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Response shape", style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
-            if (hasLive) Text("Now: ${percent(deflection)} pushed → ${percent(response(deflection, m))} speed",
+            if (hasLive) Text("Now: ${percent(deflection)} → ${speedAt(deflection, m)}",
                 style = MaterialTheme.typography.labelMedium.tabular(), color = PuckColors.Active)
         }
         Canvas(
             Modifier.fillMaxWidth().height(150.dp).clip(MaterialTheme.shapes.small).background(PuckColors.Background)
                 .semantics {
-                    contentDescription = "Response shape: dead zone ${percent(m.deadzone)}, curve ${"%.2f".format(m.curve)}. " +
-                        "Half-way pushed gives ${percent(response(.5, m))} of top speed."
+                    contentDescription = "Response shape: dead zone ${percent(m.deadzone)}, curve ${"%.2f".format(m.curve)}, " +
+                        "full speed ${speedText(m.output, m.speed)} from ${percent(m.fullSpeedAt)} push. " +
+                        samples.joinToString { "${percent(it)} push gives ${speedAt(it, m)}" } + "."
                 },
         ) {
             val w = size.width; val h = size.height
@@ -590,11 +647,17 @@ private fun CurvePreview(m: Mapping, live: Double, hasLive: Boolean) {
                 drawLine(PuckColors.Line, Offset(0f, h * i / 4), Offset(w, h * i / 4), 1f)
             }
             drawRect(PuckColors.Track.copy(alpha = .7f), Offset.Zero, Size((w * m.deadzone).toFloat(), h))
-            drawLine(PuckColors.Control.copy(alpha = .6f), Offset(0f, h), Offset(w, 0f), 1.5f,
+            val fx = (w * m.fullSpeedAt).toFloat()
+            if (m.fullSpeedAt < 1) drawRect(PuckColors.Warm.copy(alpha = .08f), Offset(fx, 0f), Size(w - fx, h))
+            drawLine(PuckColors.Control.copy(alpha = .6f), Offset((w * m.deadzone).toFloat(), h), Offset(fx, 0f), 1.5f,
                 pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f)))
+            samples.forEach { x ->
+                val px = (x * w).toFloat()
+                drawLine(PuckColors.Control.copy(alpha = .5f), Offset(px, h - 6.dp.toPx()), Offset(px, h), 1.dp.toPx())
+            }
             val path = Path()
-            for (i in 0..120) {
-                val x = i / 120.0
+            for (i in 0..200) {
+                val x = i / 200.0
                 val px = (x * w).toFloat(); val py = (h - response(x, m) * h).toFloat()
                 if (i == 0) path.moveTo(px, py) else path.lineTo(px, py)
             }
@@ -609,11 +672,25 @@ private fun CurvePreview(m: Mapping, live: Double, hasLive: Boolean) {
             Text("Center", style = MaterialTheme.typography.labelSmall, color = PuckColors.Secondary)
             Spacer(Modifier.weight(1f))
             Text("Cap pushed →", style = MaterialTheme.typography.labelSmall, color = PuckColors.Secondary)
-            Spacer(Modifier.weight(1f))
-            Text("Full · ${speedText(m.output, m.speed)}", style = MaterialTheme.typography.labelSmall, color = PuckColors.Secondary)
         }
-        Text("Shaded area is the dead zone; the dashed line is a straight response for comparison.",
+        Wrap {
+            samples.forEach { x -> SpeedChip("${percent(x)} push", speedAt(x, m)) }
+            SpeedChip("${percent(m.fullSpeedAt)}+ push", speedText(m.output, m.speed), highlight = true)
+        }
+        Text("Shaded left: dead zone. Tinted right: full speed. Dashed: the same range with curve 1.",
             style = MaterialTheme.typography.bodySmall, color = PuckColors.Secondary)
+    }
+}
+
+@Composable
+private fun SpeedChip(label: String, value: String, highlight: Boolean = false) {
+    Row(
+        Modifier.border(1.dp, if (highlight) PuckColors.Warm else PuckColors.Line, MaterialTheme.shapes.extraSmall)
+            .padding(horizontal = Space.s, vertical = 2.dp).semantics(mergeDescendants = true) {},
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(label, style = MaterialTheme.typography.labelSmall, color = PuckColors.Secondary)
+        Text(value, style = MaterialTheme.typography.labelSmall.tabular(), color = PuckColors.Foreground)
     }
 }
 
@@ -850,7 +927,7 @@ private fun ProfileDetail(p: Profile, count: Int, controller: AppController, ask
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Output.entries.forEach { o ->
                 val m = p.mappings.firstOrNull { it.output == o } ?: return@forEach
-                SummaryRow(o.label, if (m.enabled) "${m.axis.label} · ${speedText(o, m.speed)}" else "Off")
+                SummaryRow(o.label, if (m.enabled) "${m.axis.label} · ${topSpeedText(m)}" else "Off")
             }
             SummaryRow("Button 1", p.button1.label)
             SummaryRow("Button 2", p.button2.label)
@@ -1291,13 +1368,16 @@ private val Output.isPointer get() = this == Output.POINTER_X || this == Output.
 
 private fun Output.effectNoun() = if (isPointer) "the pointer" else "the page"
 
-private fun speedRange(o: Output) = if (o.isPointer) 50f..4000f else 1f..60f
+private fun speedRange(o: Output) = if (o.isPointer) 50f..20000f else 1f..60f
 
 private fun roundSpeed(o: Output, v: Double) = if (o.isPointer) (v / 10).roundToInt() * 10.0 else (v * 2).roundToInt() / 2.0
 
 private fun trimNumber(v: Double) = if (v == v.roundToInt().toDouble()) v.roundToInt().toString() else "%.1f".format(v)
 
 private fun speedText(o: Output, speed: Double) = if (o.isPointer) "${speed.roundToInt()} ${o.unit}" else "${trimNumber(speed)} ${o.unit}"
+
+/** Top speed, plus where it is reached when that's before a full push. */
+private fun topSpeedText(m: Mapping) = speedText(m.output, m.speed) + if (m.fullSpeedAt < 1) " at ${percent(m.fullSpeedAt)}" else ""
 
 private fun rateText(o: Output, rate: Double): String {
     val number = if (o.isPointer) "%+d".format(rate.roundToInt()) else "%+.1f".format(rate)
@@ -1314,7 +1394,8 @@ private fun signedPercent(v: Double): String {
 private fun curveName(c: Double) = when {
     c < 0.95 -> "quick start"
     c <= 1.05 -> "straight"
-    else -> "gentle start"
+    c <= 3.5 -> "gentle start"
+    else -> "very gentle start"
 }
 
 private fun androidx.compose.ui.text.TextStyle.tabular() = copy(fontFeatureSettings = "tnum")
@@ -1335,5 +1416,6 @@ private fun Mapping.sentence(): String {
         Output.SCROLL_X -> "scroll sideways"
     }
     if (!enabled) return "Off. ${axis.label} doesn't affect ${output.label.lowercase()} in this profile."
-    return "$movement to $effect, up to ${speedText(output, speed)}" + (if (inverted) ", direction reversed." else ".")
+    val reach = if (fullSpeedAt < 1) " from a ${percent(fullSpeedAt)} push" else ""
+    return "$movement to $effect, up to ${speedText(output, speed)}$reach" + (if (inverted) ", direction reversed." else ".")
 }

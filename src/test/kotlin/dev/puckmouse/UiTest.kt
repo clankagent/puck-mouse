@@ -51,7 +51,7 @@ class UiTest {
             assertTrue(controller.state.value.profile.mappings[2].inverted)
             onNodeWithTag("speed-slider").performSemanticsAction(SemanticsActions.SetProgress){it(18f)}
             assertEquals(18.0,controller.state.value.profile.mappings[2].speed)
-            onNodeWithTag("advanced-toggle").performClick()
+            onNodeWithTag("advanced-toggle").performScrollTo().performClick()
             onNodeWithTag("deadzone-slider").performScrollTo().performSemanticsAction(SemanticsActions.SetProgress){it(.15f)}
             assertEquals(.15,controller.state.value.profile.mappings[2].deadzone)
             snapshot("mapping-wide")
@@ -96,6 +96,43 @@ class UiTest {
             assertEquals(Hotkey(key=0x78,ctrl=true,alt=false,shift=true),controller.state.value.settings.hotkey)
             onNodeWithTag("pause-toggle").assertIsDisplayed()
             snapshot("settings-compact")
+        }
+    }
+    @Test fun linkedControlsShareExpandedTuningAndPresetKeepsDirection() = runDesktopComposeUiTest(width=1440,height=1050) {
+        AppController(SettingsStore(null),native=false).use { c ->
+            setContent { PuckMouseApp(c) }
+            onNodeWithTag("link-tuning").performClick()
+            onNodeWithTag("advanced-toggle").performScrollTo().performClick()
+            onNodeWithTag("curve-slider").performScrollTo().performSemanticsAction(SemanticsActions.SetProgress){it(8f)}
+            onNodeWithTag("full-speed-slider").performScrollTo().performSemanticsAction(SemanticsActions.SetProgress){it(.55f)}
+            assertEquals(8.0,c.state.value.profile.mappings[1].curve)
+            assertEquals(.55,c.state.value.profile.mappings[1].fullSpeedAt)
+            assertTrue(c.state.value.profile.mappings[1].inverted)
+            snapshot("linked-curve-desktop")
+            onNodeWithTag("mapping-POINTER_Y").performClick()
+            onNodeWithTag("pointer-travel-preset").performScrollTo().performClick()
+            assertEquals(defaultMappings().take(2),c.state.value.profile.mappings.take(2))
+            onNodeWithTag("pointer-travel-preset").assertIsNotEnabled()
+            onNodeWithTag("link-tuning").performScrollTo().performSemanticsAction(SemanticsActions.RequestFocus){it()}
+            onNodeWithTag("link-tuning").performKeyInput { pressKey(Key.Spacebar) }
+            assertFalse(c.state.value.profile.linkPointerTuning)
+            onNodeWithTag("advanced-toggle").performScrollTo().performClick()
+            snapshot("pointer-default-desktop")
+        }
+    }
+    @Test fun compactCurveControlsRemainAccessibleAndMaintainValidKnee() = runDesktopComposeUiTest(width=390,height=844) {
+        AppController(SettingsStore(null),native=false).use { c ->
+            setContent { PuckMouseApp(c) }
+            onNodeWithTag("link-tuning").performScrollTo().performClick()
+            snapshot("linked-compact")
+            onNodeWithTag("advanced-toggle").performScrollTo().performClick()
+            onNodeWithTag("full-speed-slider").performScrollTo().performSemanticsAction(SemanticsActions.SetProgress){it(.1f)}
+            onNodeWithTag("deadzone-slider").performScrollTo().performSemanticsAction(SemanticsActions.SetProgress){it(.5f)}
+            assertEquals(.55,c.state.value.profile.mappings[0].fullSpeedAt)
+            onNodeWithTag("curve-slider").performScrollTo().performSemanticsAction(SemanticsActions.SetProgress){it(12f)}
+            snapshot("curve-controls-compact")
+            onNodeWithTag("pause-toggle").assertIsDisplayed()
+            assertNull(c.state.value.error)
         }
     }
 }

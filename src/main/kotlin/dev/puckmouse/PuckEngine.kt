@@ -40,8 +40,10 @@ class PuckEngine(profile: Profile, file: Path=defaultDllPath()) : AutoCloseable 
                 put("kind","continuous"); put("source","axes")
                 put("options",buildJsonObject {
                     put("as","velocity"); put("speed",if(m.enabled)m.speed else 0.0)
-                    put("deadzone",m.deadzone); put("curve",m.curve); put("responseMs",m.responseMs)
-                    put("scale",buildJsonObject { for(a in Axis.entries) put(a.wire,if(a==m.axis) if(m.inverted)-1.0 else 1.0 else 0.0) })
+                    put("deadzone",m.deadzone/m.fullSpeedAt); put("curve",m.curve)
+                    // The pinned core recognizes integer zero for its immediate-response fast path.
+                    put("responseMs",if(m.responseMs==0.0)JsonPrimitive(0)else JsonPrimitive(m.responseMs))
+                    put("scale",buildJsonObject { for(a in Axis.entries) put(a.wire,if(a==m.axis) (if(m.inverted)-1.0 else 1.0)/m.fullSpeedAt else 0.0) })
                 })
             })
         }

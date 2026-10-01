@@ -9,6 +9,11 @@ processed by [Puck](https://github.com/clankagent/puck)'s Rust DLL.
 - Map each of the six cap movements to horizontal/vertical pointer or scroll output.
 - Twist to scroll by default; choose tilt, slide or press/lift instead.
 - Adjust speed, direction, dead zone, response curve and smoothing independently.
+- Link horizontal/vertical tuning for the pointer or scrolling, keeping movement
+  assignments, direction and on/off separate.
+- Shape the response with an exponent from 0.5 to 12 and a full-speed point.
+  Pointer speed can reach 20,000 px/s. New defaults combine a stronger curve with
+  6,000 px/s top speed reached at 70% push, for precision near center and fast travel.
 - Assign the two device buttons to mouse buttons, Back/Forward, pause or a held clutch.
 - Keep named profiles; duplicate, rename, reset, import and export them.
 - Pause from the main window, a configurable global shortcut or the system tray.
@@ -47,6 +52,18 @@ never interpreted as a neutral report.
 Button 1 defaults to Left click; Button 2 defaults to Toggle pause. A click
 assignment behaves like a mouse button: holding it allows dragging. Pause while
 held acts as a clutch and does not override a separate manual pause.
+
+**Link pointer X/Y tuning** and **Link scroll X/Y tuning** share speed, dead zone,
+curve, full-speed point and smoothing within that pair. Enabling a link copies
+the output you're editing to its partner. Unlinking keeps the values and lets
+you edit them independently.
+
+In **Fine tuning**, a larger exponent reduces speed near center and through the
+middle of the cap's travel. **Full speed at** determines how far to push before
+reaching top speed; lowering it makes fast travel available with less force.
+The chart and sample speeds show both effects together. Existing profiles keep
+their tuning on upgrade; choose **Precision + fast travel** to apply the new
+pointer defaults while retaining movement assignments and direction.
 
 Choose **Try without device** to inspect mappings in preview mode. Its sliders
 are simulated cap deflections; they cannot move the system cursor or scroll other

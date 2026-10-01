@@ -29,7 +29,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Msi, TargetFormat.Exe)
             packageName = "PuckMouse"
-            packageVersion = "0.1.0"
+            packageVersion = "0.1.1"
             description = "Configure a SpaceMouse for everyday pointing and scrolling"
             vendor = "Puck Mouse contributors"
             modules("java.desktop", "jdk.unsupported")

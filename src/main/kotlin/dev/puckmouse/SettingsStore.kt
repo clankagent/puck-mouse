@@ -1,13 +1,13 @@
 package dev.puckmouse
 
 import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.*
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 
 fun validateSettings(s: Settings): Settings {
-    require(s.schema==1) { "Unsupported settings version" }
+    require(s.schema==2) { "Unsupported settings version" }
     require(s.profiles.size in 1..32) { "Keep between 1 and 32 profiles" }
     require(s.profiles.map { it.id }.distinct().size==s.profiles.size) { "Duplicate profile IDs" }
     require(s.profiles.any { it.id==s.selectedId }) { "Selected profile is missing" }
@@ -19,23 +19,42 @@ fun validateSettings(s: Settings): Settings {
         require(p.id.length in 1..80) { "Invalid profile ID" }
         require(p.mappings.map{it.output}.toSet()==Output.entries.toSet() && p.mappings.size==4) { "Each output needs exactly one mapping" }
         for(m in p.mappings) {
-            require(m.speed.isFinite() && m.speed in 0.1..if(m.output.name.startsWith("POINTER")) 4000.0 else 60.0) { "Speed is outside its supported range" }
+            require(m.speed.isFinite() && m.speed in 0.1..if(m.output.name.startsWith("POINTER")) 20000.0 else 60.0) { "Speed is outside its supported range" }
             require(m.deadzone.isFinite() && m.deadzone in 0.0..0.5) { "Dead zone must be between 0 and 50%" }
-            require(m.curve.isFinite() && m.curve in 0.5..3.0) { "Response curve must be between 0.5 and 3" }
+            require(m.curve.isFinite() && m.curve in 0.5..12.0) { "Response curve must be between 0.5 and 12" }
+            require(m.fullSpeedAt.isFinite() && m.fullSpeedAt in .1..1.0 && m.fullSpeedAt-m.deadzone >= .049999) { "Full speed must be at least 5% beyond the dead zone" }
             require(m.responseMs.isFinite() && m.responseMs in 0.0..150.0) { "Smoothing must be between 0 and 150 ms" }
+        }
+        for(output in listOf(Output.POINTER_X,Output.SCROLL_X)) if(p.tuningLinked(output)) {
+            val first=p.mappings.first{it.output==output};val second=p.mappings.first{it.output==output.partner()}
+            require(first==first.withTuningFrom(second)) { "Linked horizontal and vertical tuning must match" }
         }
     }
     return s
 }
 class SettingsStore(private val path: Path?) {
-    private val json=Json { prettyPrint=true }
+    private val json=Json { prettyPrint=true;encodeDefaults=true }
     fun load(): Settings = if(path==null || !Files.exists(path)) Settings() else try {read(path)} catch(e:Exception){
         // Retain the invalid original and use defaults; expose the problem to the UI.
         loadError="Saved settings could not be loaded. The original file was preserved. ${e.message}"; Settings()
     }
     var loadError: String? = null; private set
     private var originalBackedUp=false
-    fun read(file: Path): Settings { require(Files.size(file)<=65536) { "Settings file is larger than 64 KiB" }; return validateSettings(json.decodeFromString<Settings>(Files.readString(file))) }
+    fun read(file: Path): Settings {
+        require(Files.size(file)<=65536) { "Settings file is larger than 64 KiB" }
+        val root=json.parseToJsonElement(Files.readString(file)).jsonObject
+        val schema=root["schema"]?.jsonPrimitive?.int ?: 1
+        require(schema in 1..2) { "Unsupported settings version" }
+        val normalized=if(schema==1) {
+            // V1 omitted default-valued fields. Materialize its old defaults before decoding.
+            val profiles=root["profiles"]?.jsonArray ?: buildJsonArray {add(json.encodeToJsonElement(Profile(mappings=legacyMappings())))}
+            JsonObject(root+mapOf("schema" to JsonPrimitive(2),"profiles" to JsonArray(profiles.map { item ->
+                val profile=item.jsonObject
+                if("mappings" in profile)profile else JsonObject(profile+("mappings" to json.encodeToJsonElement(legacyMappings())))
+            })))
+        } else root
+        return validateSettings(json.decodeFromJsonElement<Settings>(normalized))
+    }
     fun save(settings: Settings) { if(path!=null) {
         if(loadError!=null && !originalBackedUp && Files.exists(path)) {
             Files.copy(path,path.resolveSibling("settings.invalid-${System.currentTimeMillis()}.json"))

@@ -26,26 +26,37 @@ import java.util.concurrent.atomic.AtomicBoolean
 @Serializable data class Mapping(
     val output: Output, val axis: Axis, val enabled: Boolean = true,
     val speed: Double = 900.0, val deadzone: Double = .08,
-    val curve: Double = 1.4, val responseMs: Double = 25.0, val inverted: Boolean = false
+    val curve: Double = 1.4, val responseMs: Double = 25.0, val inverted: Boolean = false,
+    val fullSpeedAt: Double = 1.0
 )
+fun Output.partner() = when(this) {
+    Output.POINTER_X -> Output.POINTER_Y; Output.POINTER_Y -> Output.POINTER_X
+    Output.SCROLL_X -> Output.SCROLL_Y; Output.SCROLL_Y -> Output.SCROLL_X
+}
+fun Mapping.withTuningFrom(other: Mapping) = copy(speed=other.speed,deadzone=other.deadzone,curve=other.curve,responseMs=other.responseMs,fullSpeedAt=other.fullSpeedAt)
+fun pointerTravelTuning(mapping: Mapping) = mapping.copy(speed=6000.0,deadzone=.08,curve=2.6,responseMs=25.0,fullSpeedAt=.7)
 @Serializable enum class ButtonAction(val label: String) {
     LEFT_CLICK("Left click"), RIGHT_CLICK("Right click"), MIDDLE_CLICK("Middle click"),
     BACK("Back"), FORWARD("Forward"), PAUSE_TOGGLE("Toggle pause"), PAUSE_HOLD("Pause while held"), NONE("Do nothing")
 }
 @Serializable data class Profile(val id: String = UUID.randomUUID().toString(), val name: String = "Everyday",
     val mappings: List<Mapping> = defaultMappings(),
-    val button1: ButtonAction = ButtonAction.LEFT_CLICK, val button2: ButtonAction = ButtonAction.PAUSE_TOGGLE)
+    val button1: ButtonAction = ButtonAction.LEFT_CLICK, val button2: ButtonAction = ButtonAction.PAUSE_TOGGLE,
+    val linkPointerTuning: Boolean = false, val linkScrollTuning: Boolean = false) {
+    fun tuningLinked(output: Output) = if(output.name.startsWith("POINTER"))linkPointerTuning else linkScrollTuning
+}
 fun defaultMappings() = listOf(
-    Mapping(Output.POINTER_X, Axis.SLIDE_X), Mapping(Output.POINTER_Y, Axis.SLIDE_Y, inverted = true),
+    pointerTravelTuning(Mapping(Output.POINTER_X, Axis.SLIDE_X)), pointerTravelTuning(Mapping(Output.POINTER_Y, Axis.SLIDE_Y, inverted = true)),
     Mapping(Output.SCROLL_Y, Axis.TWIST, speed = 12.0, curve = 1.25),
     Mapping(Output.SCROLL_X, Axis.TILT_Y, enabled = false, speed = 10.0)
 )
+fun legacyMappings() = defaultMappings().map {if(it.output.name.startsWith("POINTER"))it.copy(speed=900.0,curve=1.4,fullSpeedAt=1.0) else it}
 @Serializable data class Hotkey(val key: Int = 0x50, val ctrl: Boolean = true, val alt: Boolean = true, val shift: Boolean = false) {
     val label: String get() = listOfNotNull(if(ctrl) "Ctrl" else null, if(alt) "Alt" else null, if(shift) "Shift" else null,
         when(key) { 0x20 -> "Space"; 0x13 -> "Pause"; 0x91 -> "Scroll Lock"; in 0x70..0x87 -> "F${key-0x6f}"; else -> key.toChar().toString() }).joinToString(" + ")
     val modifiers: Int get() = (if(ctrl) 2 else 0) or (if(alt) 1 else 0) or (if(shift) 4 else 0) or 0x4000
 }
-@Serializable data class Settings(val schema: Int = 1, val profiles: List<Profile> = listOf(Profile()),
+@Serializable data class Settings(val schema: Int = 2, val profiles: List<Profile> = listOf(Profile()),
     val selectedId: String = profiles.first().id, val hotkey: Hotkey = Hotkey(), val minimizeToTray: Boolean = true)
 data class Axes(val x: Double=0.0, val y: Double=0.0, val z: Double=0.0, val rx: Double=0.0, val ry: Double=0.0, val rz: Double=0.0) {
     fun values() = listOf(x,y,z,rx,ry,rz)
@@ -77,13 +88,22 @@ class AppController(private val store: SettingsStore = SettingsStore.default(), 
             pendingSave=writer.schedule({try{store.save(settings);if(mutable.value.settings==settings){dirty.set(false);mutable.update{it.copy(message="Saved")}}}catch(e:Exception){reportError(e.message?:"Could not save settings")}},200,TimeUnit.MILLISECONDS)
         } catch(e: Exception) { reportError(e.message ?: "Could not save settings") }
     }
-    fun updateMapping(mapping: Mapping) = change { s -> s.copy(profiles=s.profiles.map { p -> if(p.id==s.selectedId) p.copy(mappings=p.mappings.map { if(it.output==mapping.output) mapping else it }) else p }) }
+    fun updateMapping(mapping: Mapping) = change { s -> s.copy(profiles=s.profiles.map { p -> if(p.id==s.selectedId) p.copy(mappings=p.mappings.map {
+        when {it.output==mapping.output -> mapping; p.tuningLinked(mapping.output) && it.output==mapping.output.partner() -> it.withTuningFrom(mapping);else -> it}
+    }) else p }) }
+    fun setTuningLinked(output: Output,linked: Boolean) = change { s -> s.copy(profiles=s.profiles.map { p -> if(p.id!=s.selectedId)p else {
+        val source=p.mappings.first{it.output==output}
+        p.copy(linkPointerTuning=if(output.name.startsWith("POINTER"))linked else p.linkPointerTuning,
+            linkScrollTuning=if(output.name.startsWith("SCROLL"))linked else p.linkScrollTuning,
+            mappings=p.mappings.map{if(linked && it.output==output.partner())it.withTuningFrom(source)else it})
+    } }) }
+    fun applyPointerTravelPreset(output: Output) = updateMapping(pointerTravelTuning(mutable.value.profile.mappings.first{it.output==output}))
     fun updateButtons(first: ButtonAction, second: ButtonAction) = change { s -> s.copy(profiles=s.profiles.map { if(it.id==s.selectedId) it.copy(button1=first,button2=second) else it }) }
     fun selectProfile(id: String) = change { it.copy(selectedId=id) }
     fun duplicateProfile(name: String) = change { s -> val p=mutable.value.profile.copy(id=UUID.randomUUID().toString(),name=name.trim()); s.copy(profiles=s.profiles+p,selectedId=p.id) }
     fun renameProfile(name: String) = change { s -> s.copy(profiles=s.profiles.map { if(it.id==s.selectedId) it.copy(name=name.trim()) else it }) }
     fun deleteProfile() = change { s -> check(s.profiles.size>1) { "Keep at least one profile" }; val p=s.profiles.filter { it.id!=s.selectedId }; s.copy(profiles=p,selectedId=p.first().id) }
-    fun resetProfile() = change { s -> s.copy(profiles=s.profiles.map { if(it.id==s.selectedId) it.copy(mappings=defaultMappings(),button1=ButtonAction.LEFT_CLICK,button2=ButtonAction.PAUSE_TOGGLE) else it }) }
+    fun resetProfile() = change { s -> s.copy(profiles=s.profiles.map { if(it.id==s.selectedId) it.copy(mappings=defaultMappings(),button1=ButtonAction.LEFT_CLICK,button2=ButtonAction.PAUSE_TOGGLE,linkPointerTuning=false,linkScrollTuning=false) else it }) }
     fun setHotkey(hotkey: Hotkey) = change { it.copy(hotkey=hotkey) }
     fun setMinimizeToTray(value: Boolean) = change { it.copy(minimizeToTray=value) }
     fun togglePause() { if(host!=null) host!!.togglePause() else mutable.value=mutable.value.copy(paused=!mutable.value.paused,armed=false) }
