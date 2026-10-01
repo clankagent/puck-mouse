@@ -27,6 +27,10 @@ class UiTest {
             controller.simulate(Axis.TWIST,.5)
             waitUntil(timeoutMillis=5000) { (controller.state.value.outputs[Output.SCROLL_Y] ?: 0.0)>0 }
             snapshot("preview-desktop")
+            controller.reportError("Input processing paused. Resume when ready, then release the cap to center. Puck timestamps must be monotonic.")
+            onNodeWithTag("pause-toggle").assertIsDisplayed()
+            snapshot("processing-error-desktop")
+            onNodeWithTag("error-dismiss").performClick()
             onNodeWithTag("nav-settings").performClick()
             onNodeWithTag("hotkey-record").performClick()
             onNodeWithTag("hotkey-capture").performKeyInput { pressKey(Key.F12) }
@@ -86,6 +90,9 @@ class UiTest {
         AppController(SettingsStore(null),native=false).use { controller ->
             setContent { PuckMouseApp(controller) }
             onNodeWithTag("pause-toggle").assertIsDisplayed()
+            controller.reportError("Input processing paused. Resume when ready, then release the cap to center. Puck timestamps must be monotonic.")
+            snapshot("processing-error-compact")
+            onNodeWithTag("error-dismiss").performClick()
             onNodeWithTag("nav-buttons").assertIsDisplayed().performClick()
             onNodeWithTag("button2-action").performScrollTo().performClick()
             onNodeWithTag("button2-PAUSE_HOLD").performClick()

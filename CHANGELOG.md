@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.2-alpha.1
+
+- Fix older frame timestamps being submitted after device-refresh or silence
+  interruptions advanced the motion engine's clock.
+- Keep the input thread and pause shortcut available after processing failures.
+  Processing resets and pauses safely; resume and release the cap to center to
+  continue without restarting the app.
+
 ## 0.1.1-alpha.1
 
 - Link horizontal and vertical tuning independently for pointer and scrolling.

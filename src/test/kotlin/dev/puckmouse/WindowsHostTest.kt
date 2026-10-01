@@ -5,6 +5,7 @@ import kotlin.test.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import com.sun.jna.Native
+import java.util.concurrent.atomic.AtomicBoolean
 
 class WindowsHostTest {
     private fun awaitCondition(condition: ()->Boolean) {
@@ -14,7 +15,7 @@ class WindowsHostTest {
     }
     @Test fun realMessageWindowHotkeyAndPreviewLifecycleNeverRequireDesktopInjection() {
         val s=MutableStateFlow(AppState(settings=Settings(hotkey=Hotkey(0x87,true,true,true))))
-        val host=WindowsHost({s.value},{s.update(it)})
+        val host=WindowsHost({s.value},{s.update(it)},allowDesktopOutput=false)
         host.start()
         try {
             awaitCondition{s.value.hotkeyReady || s.value.error!=null}
@@ -32,7 +33,7 @@ class WindowsHostTest {
         val original=Hotkey(0x87,true,true,true);val conflict=Hotkey(0x86,true,true,true)
         assertTrue(api.RegisterHotKey(null,0x6810,conflict.modifiers,conflict.key))
         val s=MutableStateFlow(AppState(settings=Settings(hotkey=original)))
-        val host=WindowsHost({s.value},{s.update(it)});host.start()
+        val host=WindowsHost({s.value},{s.update(it)},allowDesktopOutput=false);host.start()
         try {
             awaitCondition{s.value.hotkeyReady || s.value.error!=null};assertNull(s.value.error)
             s.update{it.copy(settings=it.settings.copy(hotkey=conflict))};host.reconfigure()
@@ -42,5 +43,29 @@ class WindowsHostTest {
             awaitCondition{s.value.hotkeyReady}
             assertTrue(api.RegisterHotKey(null,0x6811,original.modifiers,original.key))
         } finally {host.close();api.UnregisterHotKey(null,0x6810);api.UnregisterHotKey(null,0x6811)}
+    }
+    @Test fun frameFailurePausesAndRebuildsProcessingWithoutLosingTheInputThread() {
+        val fault=AtomicBoolean(false)
+        val s=MutableStateFlow(AppState(settings=Settings(hotkey=Hotkey(0x87,true,true,true))))
+        val host=WindowsHost({s.value},{s.update(it)},allowDesktopOutput=false,clock={
+            if(fault.compareAndSet(true,false)) error("Simulated clock read failure")
+            System.nanoTime()/1_000_000.0
+        })
+        host.start()
+        try {
+            awaitCondition{s.value.hotkeyReady || s.value.error!=null};assertNull(s.value.error)
+            host.setPreview(true);awaitCondition{s.value.preview}
+            host.simulate(Axis.TWIST,.5);awaitCondition{(s.value.outputs[Output.SCROLL_Y]?:0.0)>0}
+            fault.set(true)
+            awaitCondition{s.value.error?.contains("Simulated clock read failure")==true}
+            assertTrue(s.value.paused);assertFalse(s.value.armed);assertTrue(s.value.hotkeyReady)
+            assertTrue(s.value.axes.neutral());assertTrue(s.value.outputs.values.all{it==0.0})
+            host.togglePause();awaitCondition{!s.value.paused}
+            assertNull(s.value.error);assertFalse(s.value.armed)
+            host.setPreview(false);awaitCondition{!s.value.preview}
+            host.setPreview(true);awaitCondition{s.value.preview}
+            host.simulate(Axis.TWIST,.5);awaitCondition{(s.value.outputs[Output.SCROLL_Y]?:0.0)>0}
+            assertNull(s.value.error);assertTrue(s.value.hotkeyReady)
+        } finally {host.close()}
     }
 }

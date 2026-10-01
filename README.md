@@ -49,6 +49,11 @@ Pausing discards accumulated movement and releases held mouse buttons. Resuming,
 device changes and mapping changes require a fresh neutral report; silence is
 never interpreted as a neutral report.
 
+If input processing fails, the app pauses and resets motion processing while
+keeping its controls available. Choose Resume when ready and release the cap
+to center to continue. If processing remains unavailable, the error explains
+what prevented the retry.
+
 Button 1 defaults to Left click; Button 2 defaults to Toggle pause. A click
 assignment behaves like a mouse button: holding it allows dragging. Pause while
 held acts as a clutch and does not override a separate manual pause.

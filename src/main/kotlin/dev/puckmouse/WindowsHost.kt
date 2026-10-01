@@ -54,7 +54,8 @@ class WindowsOutput {
     }
 }
 
-class WindowsHost(private val state: ()->AppState, private val publish: ((AppState)->AppState)->Unit, private val allowDesktopOutput: Boolean=true) : AutoCloseable {
+class WindowsHost(private val state: ()->AppState, private val publish: ((AppState)->AppState)->Unit, private val allowDesktopOutput: Boolean=true,
+    private val clock: ()->Double = {System.nanoTime()/1_000_000.0}) : AutoCloseable {
     private val queue=ConcurrentLinkedQueue<()->Unit>()
     private val running=AtomicBoolean(true)
     private val thread=Thread(::run,"Puck Mouse input").apply {isDaemon=true}
@@ -73,17 +74,27 @@ class WindowsHost(private val state: ()->AppState, private val publish: ((AppSta
     private var registeredHotkey: Hotkey?=null
     private var hotkeyId=0x504c
     private var hotkeyError: String?=null
+    private var processingError: String?=null
     private var appliedProfile: Profile?=null
     private val configurationPending=AtomicBoolean(false)
     private val buttons=ButtonTracker({action,down -> if(!preview && allowDesktopOutput) output.button(action,down)}, {hold ->
-        if(hold==null) paused=!paused else clutch=hold
-        interrupt();publish {it.copy(paused=paused||clutch)}
+        if(hold==null) togglePauseOnThread() else {
+            clutch=hold;interrupt();publish {it.copy(paused=paused||clutch)}
+        }
     })
     fun start()=thread.start()
-    private fun time()=System.nanoTime()/1_000_000.0
+    private fun time()=clock()
     private fun submit(task: ()->Unit) {if(running.get()) queue.add(task)}
-    fun togglePause()=submit {paused=!paused;interrupt();publish {it.copy(paused=paused||clutch)}}
-    fun setPreview(value: Boolean)=submit { interrupt();preview=value;paused=true;clutch=false;buttons.disconnect();simulated=Axes()
+    fun togglePause()=submit {togglePauseOnThread()}
+    private fun togglePauseOnThread() {
+        if(paused && engine==null) replaceEngine(state().profile)
+        paused=!paused;interrupt()
+        val previousError=processingError
+        publish {it.copy(paused=paused||clutch,error=if(!paused && it.error==previousError)null else it.error)}
+        if(!paused) processingError=null
+    }
+    fun setPreview(value: Boolean)=submit { if(value && engine==null) replaceEngine(state().profile)
+        interrupt();preview=value;paused=true;clutch=false;buttons.disconnect();simulated=Axes()
         publish {it.copy(preview=value,paused=true,axes=Axes(),outputs=emptyMap())}
         if(value) engine?.feed(time(),simulated)
     }
@@ -93,13 +104,23 @@ class WindowsHost(private val state: ()->AppState, private val publish: ((AppSta
         if(configurationPending.compareAndSet(false,true)) submit {
             configurationPending.set(false)
             val next=state().profile
-            val motionChanged=next.id!=appliedProfile?.id || next.mappings!=appliedProfile?.mappings
+            val motionChanged=engine==null || next.id!=appliedProfile?.id || next.mappings!=appliedProfile?.mappings
             val buttonsChanged=next.button1!=appliedProfile?.button1 || next.button2!=appliedProfile?.button2
             if(motionChanged || buttonsChanged) interrupt()
-            if(motionChanged) {engine?.close();engine=PuckEngine(next);engine?.frame(time())
-                if(preview) {simulated=Axes();engine?.feed(time(),simulated);publish{it.copy(axes=simulated)}}
-            }
+            if(motionChanged) replaceEngine(next)
             appliedProfile=next;registerHotkey()
+        }
+    }
+    private fun replaceEngine(profile: Profile) {
+        val previous=engine;engine=null;previous?.close()
+        val replacement=PuckEngine(profile)
+        try {
+            replacement.frame(time())
+            if(preview) {simulated=Axes();replacement.feed(time(),simulated);publish{it.copy(axes=simulated)}}
+            engine=replacement;appliedProfile=profile
+        } catch(error: Throwable) {
+            try {replacement.close()} catch(_: Throwable) {}
+            throw error
         }
     }
     private fun interrupt() {
@@ -180,25 +201,31 @@ class WindowsHost(private val state: ()->AppState, private val publish: ((AppSta
             null -> {}
         }
     }
-    private fun fail(error: Throwable) {
+    private fun fail(error: Throwable, recover: Boolean=true) {
         paused=true;gate.interrupt();fractions.clear()
         try {buttons.release()} catch(_: Throwable) {}
         try {engine?.interrupt(time())} catch(_: Throwable) {}
-        publish{it.copy(paused=true,armed=false,outputs=emptyMap(),error=error.message ?: "Input processing stopped")}
+        val recoveryError=if(recover) try {replaceEngine(state().profile);null} catch(e:Throwable){e} else null
+        processingError=when {
+            !recover -> "Input processing stopped. Restart Puck Mouse to retry. ${error.message ?: ""}"
+            recoveryError!=null -> "Motion processing is unavailable. Resume to retry. ${recoveryError.message ?: error.message ?: ""}"
+            else -> "Input processing paused. Resume when ready, then release the cap to center. ${error.message ?: ""}"
+        }.trim()
+        publish{it.copy(paused=true,armed=false,outputs=emptyMap(),error=processingError)}
     }
     private fun run() {
         var className="";var instance: WinDef.HINSTANCE?=null;var callback: WinUser.WindowProc?=null
         var rawRegistered=false
         try {
             require(System.getProperty("os.name").startsWith("Windows") && Native.POINTER_SIZE==8) {"Puck Mouse requires 64-bit Windows"}
-            appliedProfile=state().profile;engine=PuckEngine(appliedProfile!!);engine!!.frame(time())
+            replaceEngine(state().profile)
             raw=Native.load("user32",RawUser32::class.java)
             instance=WinDef.HINSTANCE().apply {pointer=Kernel32.INSTANCE.GetModuleHandle(null).pointer}
             className="PuckMouseInput-${ProcessHandle.current().pid()}-${System.identityHashCode(this)}"
             callback=object: WinUser.WindowProc {
                 override fun callback(hwnd: WinDef.HWND,msg: Int,w: WinDef.WPARAM,l: WinDef.LPARAM): WinDef.LRESULT {
                     try {
-                        when(msg) {0xff -> input(Pointer(l.toLong()));0xfe -> refreshDevices();0x312 -> {paused=!paused;interrupt();publish{it.copy(paused=paused||clutch)}}}
+                        when(msg) {0xff -> input(Pointer(l.toLong()));0xfe -> refreshDevices();0x312 -> togglePauseOnThread()}
                     } catch(e:Throwable) {fail(e)}
                     return User32.INSTANCE.DefWindowProc(hwnd,msg,w,l)
                 }
@@ -211,24 +238,24 @@ class WindowsHost(private val state: ()->AppState, private val publish: ((AppSta
             rids[0].flags=0x100 or 0x2000;rids[0].window=window
             check(raw!!.RegisterRawInputDevices(rids,1,rid.size())) {"Could not register background SpaceMouse input"};rawRegistered=true
             registerHotkey();refreshDevices()
-            val msg=WinUser.MSG();var frameAt=time();var devicesAt=frameAt;var feedbackAt=frameAt
+            val msg=WinUser.MSG();val timing=InputLoopTiming(::time)
             while(running.get()) {
                 var task=queue.poll();while(task!=null) {try{task()}catch(e:Throwable){fail(e)};task=queue.poll()}
                 var budget=0
                 while(budget++<128 && User32.INSTANCE.PeekMessage(msg,null,0,0,1)) {User32.INSTANCE.TranslateMessage(msg);User32.INSTANCE.DispatchMessage(msg)}
-                val now=time()
-                if(now-devicesAt>=2000) {refreshDevices();devicesAt=now}
-                // Silence is an interruption, never a manufactured neutral input.
-                if(!preview && gate.armed && now-lastMotionAt>120 && !state().axes.neutral()) interrupt()
-                if(now-frameAt>=8) {
-                    val delta=engine!!.frame(now)
-                    if(allowDesktopOutput && !preview && !paused && !clutch && gate.armed && selectedDevice!=null) output.motion(fractions.take(delta)) else fractions.clear()
-                    if(now-feedbackAt>=32) {val rates=if(preview || gate.armed)engine!!.rates() else emptyMap();publish{it.copy(outputs=rates)};feedbackAt=now}
-                    frameAt=now
-                }
+                try {
+                    timing.tick(::refreshDevices, { now ->
+                        // Silence is an interruption, never a manufactured neutral input.
+                        if(!preview && gate.armed && now-lastMotionAt>120 && !state().axes.neutral()) interrupt()
+                    }, { frameTime,feedbackDue ->
+                        val delta=engine?.frame(frameTime) ?: emptyMap()
+                        if(allowDesktopOutput && !preview && !paused && !clutch && gate.armed && selectedDevice!=null) output.motion(fractions.take(delta)) else fractions.clear()
+                        if(feedbackDue) {val rates=if(preview || gate.armed)engine?.rates() ?: emptyMap() else emptyMap();publish{it.copy(outputs=rates)}}
+                    })
+                } catch(e:Throwable) {fail(e)}
                 LockSupport.parkNanos(1_000_000)
             }
-        } catch(e:Throwable) {fail(e)} finally {
+        } catch(e:Throwable) {fail(e,recover=false)} finally {
             try{buttons.disconnect()}catch(_:Throwable){}
             try{engine?.close()}catch(_:Throwable){}
             if(rawRegistered) {val rid=RawDevice();@Suppress("UNCHECKED_CAST") val rids=rid.toArray(1) as Array<RawDevice>;rids[0].flags=1;rids[0].window=null;raw?.RegisterRawInputDevices(rids,1,rid.size())}
