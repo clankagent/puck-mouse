@@ -2,7 +2,6 @@ package dev.puckmouse
 
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import kotlin.math.abs
 
 sealed interface Report {
     data class Motion(val axes: Axes): Report
@@ -46,19 +45,21 @@ class ButtonTracker(private val send: (ButtonAction,Boolean)->Unit, private val 
     private val held=mutableMapOf<Int,ButtonAction>()
     private var mask=0
     fun report(next: Int, actions: List<ButtonAction>, active: Boolean) {
+        var canOutput=active
         for(i in 0..1) {
             val bit=1 shl i
             if(next and bit!=0 && mask and bit==0) {
                 val action=actions[i]
                 when(action) {
-                    ButtonAction.PAUSE_TOGGLE -> pause(null)
-                    ButtonAction.PAUSE_HOLD -> {held[i]=action;pause(true)}
+                    ButtonAction.PAUSE_TOGGLE -> {canOutput=false;pause(null)}
+                    ButtonAction.PAUSE_HOLD -> {canOutput=false;held[i]=action;pause(true)}
                     ButtonAction.NONE -> {}
-                    else -> if(active) {held[i]=action;send(action,true)}
+                    else -> if(canOutput) {held[i]=action;send(action,true)}
                 }
             }
-            if(next and bit==0 && mask and bit!=0) held.remove(i)?.let { action ->
+            if(next and bit==0 && mask and bit!=0) held[i]?.let { action ->
                 if(action==ButtonAction.PAUSE_HOLD) pause(false) else send(action,false)
+                held.remove(i)
             }
         }
         mask=next

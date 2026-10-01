@@ -6,6 +6,23 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 class InputLogicTest {
+    @Test fun aPauseInTheSameReportPreventsALaterButtonFromClicking() {
+        val events=mutableListOf<Pair<ButtonAction,Boolean>>()
+        lateinit var tracker:ButtonTracker
+        tracker=ButtonTracker({a,d->events.add(a to d)},{tracker.release()})
+        tracker.report(3,listOf(ButtonAction.PAUSE_TOGGLE,ButtonAction.RIGHT_CLICK),true)
+        assertTrue(events.isEmpty())
+        tracker.report(0,listOf(ButtonAction.PAUSE_TOGGLE,ButtonAction.RIGHT_CLICK),false)
+        assertTrue(events.isEmpty());assertTrue(tracker.allReleased())
+    }
+    @Test fun aFailedButtonReleaseIsRetriedDuringInterruption() {
+        var failRelease=true;val events=mutableListOf<Boolean>()
+        val tracker=ButtonTracker({_,down->if(!down && failRelease)throw IllegalStateException("blocked") else events.add(down)},{})
+        tracker.report(1,listOf(ButtonAction.LEFT_CLICK,ButtonAction.NONE),true)
+        assertFails{tracker.report(0,listOf(ButtonAction.LEFT_CLICK,ButtonAction.NONE),true)}
+        failRelease=false;tracker.release()
+        assertEquals(listOf(true,false),events)
+    }
     @Test fun decodeTheMeasuredWirelessReport() {
         val report=ByteBuffer.allocate(13).order(ByteOrder.LITTLE_ENDIAN).put(1)
         listOf(350,-350,175,0,-175,700).forEach{report.putShort(it.toShort())}
