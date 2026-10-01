@@ -1,0 +1,9 @@
+Puck 2.0.0-alpha.2 · C ABI 1 · Windows x64 MSVC
+https://github.com/clankagent/puck/releases/tag/v2.0.0-alpha.2
+
+MIT License. See PUCK-LICENSE.txt.
+SHA-256 of puck-ffi-windows-x64.dll:
+70d68ca3ce66547214410cb0ba99011b90eb0315e05ebee21affffde0ced1853
+
+This build requires the Microsoft x64 Visual C++ v14 runtime.
+The DLL is loaded by absolute path and checked against this pinned checksum.
