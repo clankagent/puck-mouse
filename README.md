@@ -1,116 +1,124 @@
 # Puck Mouse
 
-A Windows desktop utility that turns a SpaceMouse into an everyday pointing
-and scrolling device. Written in Kotlin/JVM with Compose Desktop; motion is
-processed by [Puck](https://github.com/clankagent/puck)'s Rust DLL.
+Use a 3Dconnexion SpaceMouse as an everyday mouse on Windows. Slide the cap to
+move the pointer, twist it to scroll, and press a device button to click. Puck
+Mouse controls the regular Windows pointer and scroll wheel, so it works in
+ordinary desktop apps, including ones without SpaceMouse support. It can't
+control apps that run as administrator.
 
-![Mappings and simulated input in the preview sandbox](docs/screenshots/preview.png)
+Each movement has its own tuning, so small pushes can stay precise while firmer
+pushes still cross the screen quickly.
 
-- Map each of the six cap movements to horizontal/vertical pointer or scroll output.
-- Twist to scroll by default; choose tilt, slide or press/lift instead.
-- Adjust speed, direction, dead zone, response curve and smoothing independently.
-- Link horizontal/vertical tuning for the pointer or scrolling, keeping movement
-  assignments, direction and on/off separate.
-- Shape the response with an exponent from 0.5 to 12 and a full-speed point.
-  Pointer speed can reach 20,000 px/s. New defaults combine a stronger curve with
-  6,000 px/s top speed reached at 70% push, for precision near center and fast travel.
-- Assign the two device buttons to mouse buttons, Back/Forward, pause or a held clutch.
-- Keep named profiles; duplicate, rename, reset, import and export them.
-- Pause from the main window, a configurable global shortcut or the system tray.
-- Try settings in a preview sandbox that never sends desktop input.
+**[Download Puck Mouse](https://github.com/clankagent/puck-mouse/releases)**
+(MSI or EXE installer for Windows x64). Alpha builds are listed as pre-releases.
 
-## Requirements and tested scope
+> [!IMPORTANT]
+> **Alpha, one supported device.** Puck Mouse only works with a SpaceMouse
+> Wireless connected over Bluetooth that identifies as `256f:c63a`. Other
+> models, USB connections and other report formats aren't supported yet.
+> Hardware validation is incomplete. Comfort, latency and use alongside the
+> 3Dconnexion driver haven't been verified.
 
-Windows x64 and a SpaceMouse Wireless with the measured Bluetooth report profile
-`256f:c63a` (Generic Desktop / Multi-axis Controller). Other product IDs and
-USB/split report layouts are not enabled. Unknown layouts are ignored.
-The [Microsoft x64 Visual C++ v14 runtime](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist)
-must be installed for the bundled Puck DLL. A Java runtime is included in packaged
-distributions; users do not need a separate Java installation.
+![Puck Mouse showing the Mappings page, with simulated cap movement in the preview sandbox](docs/screenshots/preview.png)
 
-This is an early preview. DLL integration, synthetic reports, pause/rearm,
-settings, native registration and UI behavior have automated checks. The desktop
-host has not yet been physically validated with a SpaceMouse. Device-specific
-signs, comfort, latency and coexistence with the 3Dconnexion driver need hardware
-testing. Puck's report profile was measured separately; that does not constitute
-physical testing of this app.
+## Install
 
-## Getting started
+You need 64-bit Windows, the SpaceMouse paired in Windows Bluetooth settings,
+and the [Microsoft Visual C++ Redistributable (x64)](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist).
+Java is bundled with the installer.
 
-Download the MSI or EXE installer from [Releases](https://github.com/clankagent/puck-mouse/releases).
-Both contain the same app and bundled Java runtime. Preview installers are
-unsigned, so Windows may show an unknown-publisher warning. Published downloads
-include SHA-256 checksums.
+Download the MSI or EXE from [Releases](https://github.com/clankagent/puck-mouse/releases).
+Both install the same app. Alpha installers aren't code-signed, so Windows may
+warn about an unknown publisher. Each release includes SHA-256 checksums so you
+can verify the files.
 
-Launch the app, choose or edit a profile, and connect the supported device.
-The app always starts paused. Resume from the header or press **Ctrl + Alt + P**
-(the default shortcut), then release the cap to neutral to arm desktop output.
-Pausing discards accumulated movement and releases held mouse buttons. Resuming,
-device changes and mapping changes require a fresh neutral report; silence is
-never interpreted as a neutral report.
+## First use
 
-A gap in motion reports stops pointer and scroll output until fresh input arrives.
-It does not require releasing the cap or cancel a held mouse button. Movement
-from the missing interval is discarded, so there is no catch-up jump.
+1. Start **Puck Mouse** from the Start menu. The header should show
+   **SpaceMouse Wireless · Bluetooth**. If it shows *Device needs a supported
+   report profile*, Windows found a SpaceMouse that Puck Mouse can't use.
+2. Puck Mouse always starts **paused**. Click **Resume** or press
+   **Ctrl + Alt + P**.
+3. Let go of the cap. Output begins once the cap rests at center, and the status
+   changes from *Release the cap to resume* to *Active*.
 
-If input processing fails, the app pauses and resets motion processing while
-keeping its controls available. Choose Resume when ready and release the cap
-to center to continue. If processing remains unavailable, the error explains
-what prevented the retry.
+If a movement goes the wrong way, select that output on the **Mappings** page
+and turn on **Reverse direction**. To experiment without a device, choose
+**Try without device**. The preview never sends input to Windows.
 
-Button 1 defaults to Left click; Button 2 defaults to Toggle pause. A click
-assignment behaves like a mouse button: holding it allows dragging. Pause while
-held acts as a clutch and does not override a separate manual pause.
+## Default controls
 
-**Link pointer X/Y tuning** and **Link scroll X/Y tuning** share speed, dead zone,
-curve, full-speed point and smoothing within that pair. Enabling a link copies
-the output you're editing to its partner. Unlinking keeps the values and lets
-you edit them independently.
+| Input | Default action |
+| --- | --- |
+| Slide sideways | Move the pointer left and right |
+| Slide forward / back | Move the pointer up and down |
+| Twist | Scroll vertically |
+| Tilt sideways | Scroll horizontally (off until you turn it on) |
+| Button 1 | Left click, or hold to drag |
+| Button 2 | Pause and resume |
+| Ctrl + Alt + P | Pause and resume from any app |
 
-In **Fine tuning**, a larger exponent reduces speed near center and through the
-middle of the cap's travel. **Full speed at** determines how far to push before
-reaching top speed; lowering it makes fast travel available with less force.
-The chart and sample speeds show both effects together. Existing profiles keep
-their tuning on upgrade; choose **Precision + fast travel** to apply the new
-pointer defaults while retaining movement assignments and direction.
+The pointer starts slowly near center and reaches top speed at a 70% push.
+Scrolling has a larger dead zone and a gentler curve. The
+[usage guide](docs/USAGE.md#defaults) has the exact values.
 
-New scroll defaults use a 14% dead zone and exponent 1.7, gentler than the
-pointer curve, with full speed at full push. Existing profiles retain their
-tuning. Choose **Gentle scrolling** on a scroll output to apply the new shape
-without changing its speed, smoothing, movement assignment or direction. If
-scroll tuning is linked, the preset applies to both directions.
+You can assign any of the six cap movements to any output. To scroll by tilting
+instead of twisting, select **Scroll · vertical** and set **Movement** to
+*Tilt forward / back*. A button can also be a right or middle click, Back,
+Forward, or a pause clutch.
 
-Choose **Try without device** to inspect mappings in preview mode. Its sliders
-are simulated cap deflections; they cannot move the system cursor or scroll other
-applications. Leaving preview returns to paused mode.
+## Pausing
 
-The app runs unelevated. Windows restricts injected input into elevated apps;
-Puck Mouse reports an output failure and pauses when injection is blocked. It
-does not modify Windows pointer settings or disable the 3Dconnexion driver.
-Closing the window keeps the app in the tray by default; choose Quit to release
-input registrations and exit. Automatic startup is not registered.
+The shortcut works in any app, even while the window is hidden. You can also
+pause from the header, the tray menu or Button 2. If you set a button to
+**Pause while held**, it works as a clutch: output stops while you hold it, so
+you can reposition your hand.
 
-Settings stay locally in `%APPDATA%/PuckMouse/settings.json`. Import/export files
-contain profiles and preferences, with no recordings or device paths. The app has
-no telemetry, account requirement, network service or cloud synchronization.
-The installed version is shown in **Settings → About** and can be selected to
-copy. There is no update checker.
+A pause, a disconnect or a mapping change releases held clicks, and output then
+waits until the cap is back at center. A brief gap in device reports only stops
+movement until new input arrives. Held buttons stay held, and the missed
+movement isn't replayed.
 
-## Build
+## Adjusting the feel
 
-Use JDK 21 and the checked-in Gradle wrapper:
+Select an output on the **Mappings** page. **Top speed** is always visible.
+**Fine tuning** holds the other settings, along with a chart of the response.
 
-```powershell
-./gradlew.bat test
-./gradlew.bat run
-./gradlew.bat createDistributable packageMsi packageExe
-```
+| If… | Try… |
+| --- | --- |
+| The pointer creeps while your hand rests on the cap | Raise **Dead zone** |
+| Small targets are hard to hit | Raise **Response curve** |
+| Crossing the screen takes too long | Raise **Top speed**, or lower **Full speed at** |
+| Motion looks jittery | Raise **Smoothing** |
+| Motion feels late | Lower **Smoothing** |
+| Scrolling is too fast or too sensitive | Lower **Top speed**, or apply **Gentle scrolling** |
 
-Kotlin 2.4.20, Compose 1.12.1, Gradle 9.7.0 and JNA 5.19.1 are pinned.
-The released Puck DLL is bundled with its license and a pinned SHA-256 checksum.
-Puck handles stay on one input thread; the UI owns no native engine handles.
-The package is Windows x64 only. Development Hot Reload and its stdio MCP are
-available through `hotRunAsync` / `hotMcpServer`; they are excluded from packaged
-runtime dependencies. Tests and `--qa` preview mode do not inject desktop input.
+To tune both directions together, turn on **Link pointer X/Y tuning** or
+**Link scroll X/Y tuning**. Movement, direction and on/off stay separate.
+Profiles from earlier versions keep their tuning. To switch to the current
+defaults, apply **Precision + fast travel** or **Gentle scrolling**.
 
-MIT License. SpaceMouse is a trademark of 3Dconnexion; this project is independent.
+## Settings, privacy and updates
+
+Settings save automatically to `%APPDATA%\PuckMouse\settings.json`, and profiles
+can be exported and imported. Puck Mouse has no account, telemetry, network
+features or cloud sync, and it never registers itself to start with Windows.
+Closing the window keeps it in the tray so the shortcut keeps working. To exit,
+choose **Quit** from the tray icon.
+
+Puck Mouse doesn't check for updates. **Settings → About** shows the installed
+version. To update, quit Puck Mouse and run a newer installer from
+[Releases](https://github.com/clankagent/puck-mouse/releases). Your settings are
+kept.
+
+## Development and license
+
+Puck Mouse is built with Kotlin and Compose Desktop, and the bundled
+[Puck](https://github.com/clankagent/puck) library handles motion processing.
+For building, testing and validation scope, see
+[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md). Release notes are in
+[CHANGELOG.md](CHANGELOG.md).
+
+The project is licensed under [MIT](LICENSE). The bundled Puck library has its
+own license and notice. SpaceMouse is a trademark of 3Dconnexion, and Puck Mouse
+is an independent project.
