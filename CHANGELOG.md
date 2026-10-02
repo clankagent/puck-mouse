@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.6-alpha.1
+
+- Use the Pause key as the default global pause/resume shortcut. Upgrades replace
+  the previous default Ctrl + Alt + P, while preserving custom shortcuts.
+- Shape pointer speed from combined two-dimensional push, preserving arbitrary
+  directions with matching X/Y tuning and avoiding diagonal speed differences.
+  Independent axis response remains available for comparison.
+- Add a Natural pointer preset: 4% dead zone, exponent 1.7, no smoothing and full
+  speed at full push. It links pointer tuning and keeps movement assignments,
+  direction and on/off. Existing factory pointer tuning adopts this preset;
+  custom tuning is retained. Scroll tuning is unchanged.
+- Show cap and target pointer directions in the live preview. Radial curve
+  feedback uses combined push rather than a single axis.
+
 ## 0.1.5-alpha.1
 
 - Increase new scroll defaults to a 14% dead zone and exponent 1.7 for both

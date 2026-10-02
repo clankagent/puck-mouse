@@ -7,7 +7,7 @@ import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 
 fun validateSettings(s: Settings): Settings {
-    require(s.schema==2) { "Unsupported settings version" }
+    require(s.schema==3) { "Unsupported settings version" }
     require(s.profiles.size in 1..32) { "Keep between 1 and 32 profiles" }
     require(s.profiles.map { it.id }.distinct().size==s.profiles.size) { "Duplicate profile IDs" }
     require(s.profiles.any { it.id==s.selectedId }) { "Selected profile is missing" }
@@ -44,15 +44,34 @@ class SettingsStore(private val path: Path?) {
         require(Files.size(file)<=65536) { "Settings file is larger than 64 KiB" }
         val root=json.parseToJsonElement(Files.readString(file)).jsonObject
         val schema=root["schema"]?.jsonPrimitive?.int ?: 1
-        require(schema in 1..2) { "Unsupported settings version" }
-        // Preserve omitted old defaults in saved/imported profiles. New settings
-        // encode all values, so later defaults cannot silently retune them.
-        val savedDefaults=legacyMappings().map {if(schema==2 && it.output.name.startsWith("POINTER"))pointerTravelTuning(it) else it}
-        val profiles=root["profiles"]?.jsonArray ?: buildJsonArray {add(json.encodeToJsonElement(Profile(mappings=savedDefaults)))}
-        val normalized=JsonObject(root+mapOf("schema" to JsonPrimitive(2),"profiles" to JsonArray(profiles.map { item ->
-            val profile=item.jsonObject
-            if("mappings" in profile)profile else JsonObject(profile+("mappings" to json.encodeToJsonElement(savedDefaults)))
-        })))
+        require(schema in 1..3) { "Unsupported settings version" }
+        // Resolve omitted historical defaults before the explicit factory-preset
+        // migration. Custom values and shortcut modifiers keep their meaning.
+        val savedDefaults=if(schema==3)defaultMappings()else legacyMappings().map {if(schema==2 && it.output.name.startsWith("POINTER"))pointerTravelTuning(it) else it}
+        val profiles=root["profiles"]?.jsonArray ?: buildJsonArray {add(json.encodeToJsonElement(Profile(mappings=savedDefaults,linkPointerTuning=schema==3)))}
+        val normalizedProfiles=profiles.map { item ->
+            var profile=item.jsonObject
+            if("mappings" !in profile) profile=JsonObject(profile+("mappings" to json.encodeToJsonElement(savedDefaults)))
+            if(schema<3) {
+                // Preserve the historical meaning of omitted link flags.
+                if("linkPointerTuning" !in profile)profile=JsonObject(profile+("linkPointerTuning" to JsonPrimitive(false)))
+                val decoded=json.decodeFromJsonElement<Profile>(profile)
+                val pointer=decoded.mappings.filter{it.output.name.startsWith("POINTER")}
+                val factory=pointer.all {it==pointerTravelTuning(it)}
+                // Retune only the untouched factory preset. Custom tuning stays intact.
+                if(factory) profile=json.encodeToJsonElement(decoded.copy(linkPointerTuning=true,mappings=decoded.mappings.map {
+                    if(it.output.name.startsWith("POINTER"))naturalPointerTuning(it)else it
+                })).jsonObject
+            }
+            profile
+        }
+        val normalizedHotkey=if(schema<3) {
+            val old=root["hotkey"]?.jsonObject ?: buildJsonObject {}
+            val complete=JsonObject(json.encodeToJsonElement(legacyHotkey()).jsonObject+old)
+            val hotkey=json.decodeFromJsonElement<Hotkey>(complete)
+            json.encodeToJsonElement(if(hotkey==legacyHotkey())Hotkey()else hotkey)
+        }else root["hotkey"] ?: json.encodeToJsonElement(Hotkey())
+        val normalized=JsonObject(root+mapOf("schema" to JsonPrimitive(3),"profiles" to JsonArray(normalizedProfiles),"hotkey" to normalizedHotkey))
         return validateSettings(json.decodeFromJsonElement<Settings>(normalized))
     }
     fun save(settings: Settings) { if(path!=null) {

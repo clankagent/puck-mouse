@@ -6,7 +6,7 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose") version "2.4.20"
     id("org.jetbrains.compose") version "1.12.1"
 }
-version = "0.1.5-alpha.1"
+version = "0.1.6-alpha.1"
 val generateAppVersion = tasks.register("generateAppVersion") {
     val appVersion = project.version.toString()
     val destination = layout.buildDirectory.file("generated/app-version/puckmouse-version.txt")

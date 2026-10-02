@@ -15,11 +15,12 @@ class WindowsHostTest {
         assertTrue(condition())
     }
     @Test fun realMessageWindowHotkeyAndPreviewLifecycleNeverRequireDesktopInjection() {
-        val s=MutableStateFlow(AppState(settings=Settings(hotkey=Hotkey(0x87,true,true,true))))
+        val s=MutableStateFlow(AppState())
         val host=WindowsHost({s.value},{s.update(it)},allowDesktopOutput=false)
         host.start()
         try {
             awaitCondition{s.value.hotkeyReady || s.value.error!=null}
+            assertEquals("Pause",s.value.settings.hotkey.label)
             assertNull(s.value.error);assertTrue(s.value.paused)
             host.setPreview(true);awaitCondition{s.value.preview}
             host.simulate(Axis.TWIST,.5);awaitCondition{(s.value.outputs[Output.SCROLL_Y]?:0.0)>0.0}

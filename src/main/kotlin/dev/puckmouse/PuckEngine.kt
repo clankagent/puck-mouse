@@ -28,6 +28,7 @@ class PuckEngine(profile: Profile, file: Path=defaultDllPath()) : AutoCloseable 
     private val owner=Thread.currentThread()
     private val abi: PuckAbi
     private val mappings=profile.mappings
+    private val profile=profile
     private var handle=0
     init {
         require(file.isAbsolute && Files.isRegularFile(file)) { "The bundled Puck DLL is missing" }
@@ -40,10 +41,15 @@ class PuckEngine(profile: Profile, file: Path=defaultDllPath()) : AutoCloseable 
                 put("kind","continuous"); put("source","axes")
                 put("options",buildJsonObject {
                     put("as","velocity"); put("speed",if(m.enabled)m.speed else 0.0)
-                    put("deadzone",m.deadzone/m.fullSpeedAt); put("curve",m.curve)
+                    // Desktop response shaping is applied to the pointer vector
+                    // before Puck smooths and integrates the four output channels.
+                    put("deadzone",0); put("curve",1)
                     // The pinned core recognizes integer zero for its immediate-response fast path.
                     put("responseMs",if(m.responseMs==0.0)JsonPrimitive(0)else JsonPrimitive(m.responseMs))
-                    put("scale",buildJsonObject { for(a in Axis.entries) put(a.wire,if(a==m.axis) (if(m.inverted)-1.0 else 1.0)/m.fullSpeedAt else 0.0) })
+                    put("scale",buildJsonObject { for(a in Axis.entries) put(a.wire,if(a.ordinal==m.output.ordinal) 1 else 0) })
+                    // A separate channel carries actual-neutral evidence. A
+                    // shaped zero inside a dead zone must never rearm the engine.
+                    put("ownership",buildJsonObject {put("mode","shared");put("channels",buildJsonArray {add("ry")})})
                 })
             })
         }
@@ -69,15 +75,16 @@ class PuckEngine(profile: Profile, file: Path=defaultDllPath()) : AutoCloseable 
         return response()
     }
     fun feed(time: Double,axes: Axes) { checkThread(); check(axes.values().all{it.isFinite() && it in -1.0..1.0})
-        check(abi.puck_feed(handle,time,axes.x,axes.y,axes.z,axes.rx,axes.ry,axes.rz)==1) { response().toString() }
+        val shaped=shapedOutputs(profile,axes)
+        check(abi.puck_feed(handle,time,shaped[0],shaped[1],shaped[2],shaped[3],if(axes.neutral())0.0 else 1.0,0.0)==1) { response().toString() }
     }
     fun frame(time: Double): Map<Output,Double> {
         val value=command(buildJsonObject {put("op","frame");put("time",time)}).jsonObject["value"]!!.jsonObject["results"]!!.jsonObject
-        return mappings.associate { m -> m.output to value["controls.${m.output.name}"]!!.jsonObject[m.axis.wire]!!.jsonPrimitive.double }
+        return mappings.associate { m -> m.output to value["controls.${m.output.name}"]!!.jsonObject[Axis.entries[m.output.ordinal].wire]!!.jsonPrimitive.double }
     }
     fun rates(): Map<Output,Double> = mappings.associate { m ->
         val value=command(buildJsonObject {put("op","read");put("control","controls.${m.output.name}")}).jsonObject["value"]!!.jsonObject
-        m.output to value[m.axis.wire]!!.jsonPrimitive.double
+        m.output to value[Axis.entries[m.output.ordinal].wire]!!.jsonPrimitive.double
     }
     fun interrupt(time: Double) {
         command(buildJsonObject {put("op","interrupt");put("time",time);put("reason","pause")})

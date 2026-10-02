@@ -26,13 +26,13 @@ New profiles start with these settings:
 
 | Output | Cap movement | Top speed | Dead zone | Curve | Full speed at | Smoothing |
 | --- | --- | --- | --- | --- | --- | --- |
-| Pointer · horizontal | Slide sideways | 6,000 px/s | 8% | 2.6 | 70% push | 25 ms |
-| Pointer · vertical | Slide forward / back | 6,000 px/s | 8% | 2.6 | 70% push | 25 ms |
+| Pointer · horizontal | Slide sideways | 6,000 px/s | 4% | 1.7 | full push | 0 ms |
+| Pointer · vertical | Slide forward / back | 6,000 px/s | 4% | 1.7 | full push | 0 ms |
 | Scroll · vertical | Twist | 12 notches/s | 14% | 1.7 | full push | 25 ms |
 | Scroll · horizontal (off) | Tilt sideways | 10 notches/s | 14% | 1.7 | full push | 25 ms |
 
-Button 1 is **Left click**, and Button 2 is **Toggle pause**. Tuning links are
-off, and the pause shortcut is **Ctrl + Alt + P**.
+Button 1 is **Left click**, and Button 2 is **Toggle pause**. Pointer tuning is
+linked; scroll tuning is unlinked. The pause shortcut is **Pause**.
 
 ## Mappings
 
@@ -56,7 +56,29 @@ For each output you can set:
 - **Top speed** and **Fine tuning**, described below.
 
 **Reset to defaults…** restores all four mappings and both button actions in
-the current profile and turns off both tuning links. The profile name is kept.
+the current profile, enables radial pointer response and links pointer tuning.
+Scroll tuning is unlinked. The profile name is kept.
+
+### Pointer direction
+
+**Preserve pointer direction** applies the dead zone and curve to combined X/Y
+push. The cap's direction determines the X/Y proportions, so a 30° push stays
+30° with matching pointer tuning. Full speed is a total vector speed; diagonals
+don't get faster or slower just because of their angle.
+
+Pointer X/Y tuning starts linked. If you unlink and give the directions different
+speeds or response settings, they become weighted differently and the resulting
+angle can change. Movement assignment, direction reversal and on/off remain
+independent. A disabled direction doesn't contribute to combined push.
+
+Turn this option off to compare the older independent axis response. If both
+pointer outputs use the same cap movement, independent response is used because
+one source cannot provide two-dimensional direction. Scrolling always keeps its
+independent response.
+
+The direction preview compares mapped cap direction with target pointer
+direction. It shows the target before smoothing, rather than claiming to measure
+actual cursor travel. In radial mode, the curve's live marker uses combined push.
 
 ## Fine tuning
 
@@ -78,24 +100,29 @@ at the full-speed point.
 
 Raising the curve also slows medium pushes. To keep fast travel, pair a higher
 curve with a lower **Full speed at** or a higher **Top speed**. The pointer
-defaults combine both: curve 2.6 with full speed at a 70% push.
+defaults use curve 1.7 with a 4% radial dead zone and full speed at full push.
 
 **Restore default fine tuning** resets the dead zone, curve, full-speed point
 and smoothing to the defaults for that output. Top speed is not changed.
 
 ### Presets
 
+- **Natural pointer** applies to both pointer directions: 6,000 px/s, a 4%
+  radial dead zone, curve 1.7, full speed at full push and no smoothing. It enables
+  radial response and links pointer tuning, preserving assignments and direction.
 - **Precision + fast travel** (pointer outputs) sets 6,000 px/s, an 8% dead
   zone, curve 2.6, full speed at 70% and 25 ms smoothing.
 - **Gentle scrolling** (scroll outputs) sets a 14% dead zone, curve 1.7 and full
   speed at full push. Speed and smoothing are kept.
 
-Both presets keep the output's movement, direction and on/off setting. If tuning
+All presets keep the output's movement, direction and on/off setting. If tuning
 is linked, a preset applies to both directions. The button shows a check mark
 when the output already matches.
 
-Profiles created in earlier versions keep their saved tuning after an upgrade.
-Use these presets to switch to the current defaults.
+Upgrades retain custom tuning and scroll settings. The previous factory pointer
+preset (6,000 px/s, 8%, curve 2.6, 70% push, 25 ms) adopts Natural pointer.
+Radial response is enabled for older profiles; turn it off to compare the old
+behavior. Use Natural pointer to retune a custom profile explicitly.
 
 ### Linked tuning
 
@@ -130,7 +157,7 @@ You can pause or resume in several ways:
 
 - The **Resume / Pause** button in the header.
 - The tray menu.
-- The global pause shortcut, **Ctrl + Alt + P** by default.
+- The global pause shortcut, **Pause** by default.
 - A device button set to **Toggle pause** or **Pause while held**.
 
 After you resume, after a disconnect, or after you change a mapping or button
@@ -156,6 +183,9 @@ If another app already uses the shortcut, Puck Mouse shows a message. If a
 previous shortcut was working, it stays active until you choose one that's
 available.
 
+Upgrades change the old default **Ctrl + Alt + P** to **Pause**. Other saved
+shortcuts are preserved, including their modifiers.
+
 ## Preview sandbox
 
 Choose **Try without device** (or **Preview** in the header) to test mappings
@@ -169,7 +199,8 @@ preview, Puck Mouse returns to paused.
 A profile holds the four mappings, both button actions and the link settings.
 You can switch profiles from the header or the **Profiles** page. You can
 rename, duplicate, reset or delete a profile, and you can keep up to 32 of them.
-Resetting a profile also turns off its tuning links.
+Resetting restores radial pointer response and linked pointer tuning, with
+scroll tuning unlinked.
 
 - **Export all…** saves every profile to a JSON file. It also saves your
   preferences, such as the pause shortcut and tray setting.

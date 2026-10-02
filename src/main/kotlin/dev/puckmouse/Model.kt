@@ -35,6 +35,7 @@ fun Output.partner() = when(this) {
 }
 fun Mapping.withTuningFrom(other: Mapping) = copy(speed=other.speed,deadzone=other.deadzone,curve=other.curve,responseMs=other.responseMs,fullSpeedAt=other.fullSpeedAt)
 fun pointerTravelTuning(mapping: Mapping) = mapping.copy(speed=6000.0,deadzone=.08,curve=2.6,responseMs=25.0,fullSpeedAt=.7)
+fun naturalPointerTuning(mapping: Mapping) = mapping.copy(speed=6000.0,deadzone=.04,curve=1.7,responseMs=0.0,fullSpeedAt=1.0)
 fun gentleScrollTuning(mapping: Mapping) = mapping.copy(deadzone=.14,curve=1.7,fullSpeedAt=1.0)
 @Serializable enum class ButtonAction(val label: String) {
     LEFT_CLICK("Left click"), RIGHT_CLICK("Right click"), MIDDLE_CLICK("Middle click"),
@@ -43,11 +44,12 @@ fun gentleScrollTuning(mapping: Mapping) = mapping.copy(deadzone=.14,curve=1.7,f
 @Serializable data class Profile(val id: String = UUID.randomUUID().toString(), val name: String = "Everyday",
     val mappings: List<Mapping> = defaultMappings(),
     val button1: ButtonAction = ButtonAction.LEFT_CLICK, val button2: ButtonAction = ButtonAction.PAUSE_TOGGLE,
-    val linkPointerTuning: Boolean = false, val linkScrollTuning: Boolean = false) {
+    val linkPointerTuning: Boolean = true, val linkScrollTuning: Boolean = false,
+    val radialPointer: Boolean = true) {
     fun tuningLinked(output: Output) = if(output.name.startsWith("POINTER"))linkPointerTuning else linkScrollTuning
 }
 fun defaultMappings() = listOf(
-    pointerTravelTuning(Mapping(Output.POINTER_X, Axis.SLIDE_X)), pointerTravelTuning(Mapping(Output.POINTER_Y, Axis.SLIDE_Y, inverted = true)),
+    naturalPointerTuning(Mapping(Output.POINTER_X, Axis.SLIDE_X)), naturalPointerTuning(Mapping(Output.POINTER_Y, Axis.SLIDE_Y, inverted = true)),
     gentleScrollTuning(Mapping(Output.SCROLL_Y, Axis.TWIST, speed = 12.0)),
     gentleScrollTuning(Mapping(Output.SCROLL_X, Axis.TILT_Y, enabled = false, speed = 10.0))
 )
@@ -57,12 +59,13 @@ fun legacyMappings() = listOf(
     Mapping(Output.SCROLL_Y,Axis.TWIST,speed=12.0,curve=1.25),
     Mapping(Output.SCROLL_X,Axis.TILT_Y,enabled=false,speed=10.0)
 )
-@Serializable data class Hotkey(val key: Int = 0x50, val ctrl: Boolean = true, val alt: Boolean = true, val shift: Boolean = false) {
+fun legacyHotkey() = Hotkey(0x50,true,true,false)
+@Serializable data class Hotkey(val key: Int = 0x13, val ctrl: Boolean = false, val alt: Boolean = false, val shift: Boolean = false) {
     val label: String get() = listOfNotNull(if(ctrl) "Ctrl" else null, if(alt) "Alt" else null, if(shift) "Shift" else null,
         when(key) { 0x20 -> "Space"; 0x13 -> "Pause"; 0x91 -> "Scroll Lock"; in 0x70..0x87 -> "F${key-0x6f}"; else -> key.toChar().toString() }).joinToString(" + ")
     val modifiers: Int get() = (if(ctrl) 2 else 0) or (if(alt) 1 else 0) or (if(shift) 4 else 0) or 0x4000
 }
-@Serializable data class Settings(val schema: Int = 2, val profiles: List<Profile> = listOf(Profile()),
+@Serializable data class Settings(val schema: Int = 3, val profiles: List<Profile> = listOf(Profile()),
     val selectedId: String = profiles.first().id, val hotkey: Hotkey = Hotkey(), val minimizeToTray: Boolean = true)
 data class Axes(val x: Double=0.0, val y: Double=0.0, val z: Double=0.0, val rx: Double=0.0, val ry: Double=0.0, val rz: Double=0.0) {
     fun values() = listOf(x,y,z,rx,ry,rz)
@@ -104,13 +107,19 @@ class AppController(private val store: SettingsStore = SettingsStore.default(), 
             mappings=p.mappings.map{if(linked && it.output==output.partner())it.withTuningFrom(source)else it})
     } }) }
     fun applyPointerTravelPreset(output: Output) = updateMapping(pointerTravelTuning(mutable.value.profile.mappings.first{it.output==output}))
+    fun setRadialPointer(value: Boolean) = change { s -> s.copy(profiles=s.profiles.map { if(it.id==s.selectedId)it.copy(radialPointer=value)else it }) }
+    fun applyNaturalPointerPreset() = change { s -> s.copy(profiles=s.profiles.map { p ->
+        if(p.id==s.selectedId)p.copy(radialPointer=true,linkPointerTuning=true,mappings=p.mappings.map {
+            if(it.output.name.startsWith("POINTER"))naturalPointerTuning(it)else it
+        })else p
+    }) }
     fun applyGentleScrollPreset(output: Output) = updateMapping(gentleScrollTuning(mutable.value.profile.mappings.first{it.output==output}))
     fun updateButtons(first: ButtonAction, second: ButtonAction) = change { s -> s.copy(profiles=s.profiles.map { if(it.id==s.selectedId) it.copy(button1=first,button2=second) else it }) }
     fun selectProfile(id: String) = change { it.copy(selectedId=id) }
     fun duplicateProfile(name: String) = change { s -> val p=mutable.value.profile.copy(id=UUID.randomUUID().toString(),name=name.trim()); s.copy(profiles=s.profiles+p,selectedId=p.id) }
     fun renameProfile(name: String) = change { s -> s.copy(profiles=s.profiles.map { if(it.id==s.selectedId) it.copy(name=name.trim()) else it }) }
     fun deleteProfile() = change { s -> check(s.profiles.size>1) { "Keep at least one profile" }; val p=s.profiles.filter { it.id!=s.selectedId }; s.copy(profiles=p,selectedId=p.first().id) }
-    fun resetProfile() = change { s -> s.copy(profiles=s.profiles.map { if(it.id==s.selectedId) it.copy(mappings=defaultMappings(),button1=ButtonAction.LEFT_CLICK,button2=ButtonAction.PAUSE_TOGGLE,linkPointerTuning=false,linkScrollTuning=false) else it }) }
+    fun resetProfile() = change { s -> s.copy(profiles=s.profiles.map { if(it.id==s.selectedId) it.copy(mappings=defaultMappings(),button1=ButtonAction.LEFT_CLICK,button2=ButtonAction.PAUSE_TOGGLE,linkPointerTuning=true,linkScrollTuning=false,radialPointer=true) else it }) }
     fun setHotkey(hotkey: Hotkey) = change { it.copy(hotkey=hotkey) }
     fun setMinimizeToTray(value: Boolean) = change { it.copy(minimizeToTray=value) }
     fun togglePause() { if(host!=null) host!!.togglePause() else mutable.value=mutable.value.copy(paused=!mutable.value.paused,armed=false) }

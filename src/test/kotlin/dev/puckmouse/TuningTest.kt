@@ -7,11 +7,11 @@ import java.nio.file.Path
 import kotlin.math.pow
 
 class TuningTest {
-    @Test fun gentleScrollDefaultsRejectSmallDeflectionsAndUseAMilderCurveThanPointer() {
+    @Test fun gentleScrollDefaultsKeepTheirIndependentShape() {
         val scroll=defaultMappings()[2]
         assertEquals(.14,scroll.deadzone);assertEquals(1.7,scroll.curve)
         assertEquals(.14,defaultMappings()[3].deadzone);assertEquals(1.7,defaultMappings()[3].curve)
-        assertTrue(scroll.curve<defaultMappings()[0].curve)
+        assertTrue(scroll.deadzone>defaultMappings()[0].deadzone)
         val profile=Profile(mappings=defaultMappings().map{it.copy(responseMs=0.0)})
         PuckEngine(profile,Path.of(System.getProperty("puck.dll"))).use {engine ->
             engine.frame(0.0)
@@ -31,7 +31,7 @@ class TuningTest {
                 val old=store.read(file).profiles[0].mappings
                 assertEquals(.08,old[2].deadzone);assertEquals(1.25,old[2].curve)
                 assertEquals(.08,old[3].deadzone);assertEquals(1.4,old[3].curve)
-                assertEquals(if(schema==1)1.4 else 2.6,old[0].curve)
+                assertEquals(if(schema==1)1.4 else 1.7,old[0].curve)
             }
             val saved=Settings(profiles=listOf(Profile(mappings=legacyMappings().map {
                 if(it.output==Output.SCROLL_Y)it.copy(deadzone=.19,curve=2.2,speed=17.0)else it
@@ -81,7 +81,7 @@ class TuningTest {
         try {
             Files.writeString(file,"""{"profiles":[{"id":"old","name":"Everyday"}],"selectedId":"old"}""")
             val store=SettingsStore(file);val old=store.read(file)
-            assertEquals(2,old.schema);assertEquals(legacyMappings(),old.profiles[0].mappings);assertFalse(old.profiles[0].linkPointerTuning)
+            assertEquals(3,old.schema);assertEquals(legacyMappings(),old.profiles[0].mappings);assertFalse(old.profiles[0].linkPointerTuning)
             Files.writeString(file,"""{"schema":1,"profiles":[{"id":"old","name":"Custom","mappings":[{"output":"POINTER_X","axis":"SLIDE_X","speed":1700.0,"curve":2.0},{"output":"POINTER_Y","axis":"SLIDE_Y","inverted":true},{"output":"SCROLL_Y","axis":"TWIST","speed":15.0},{"output":"SCROLL_X","axis":"TILT_Y","enabled":false,"speed":10.0}]}],"selectedId":"old"}""")
             val custom=store.read(file)
             assertEquals(1700.0,custom.profiles[0].mappings[0].speed);assertEquals(900.0,custom.profiles[0].mappings[1].speed)
@@ -109,10 +109,13 @@ class TuningTest {
             engine.feed(31.0,Axes());engine.feed(32.0,Axes(x=.7));assertEquals(10000.0,engine.rates()[Output.POINTER_X]!!,1e-7)
         }
     }
-    @Test fun newPointerDefaultsCombineFineControlAndFastTravel() {
+    @Test fun newPointerDefaultsUseAResponsiveRadialShape() {
         val mapping=defaultMappings()[0]
-        fun rate(push:Double)=((push-mapping.deadzone)/(mapping.fullSpeedAt-mapping.deadzone)).coerceIn(0.0,1.0).pow(mapping.curve)*mapping.speed
-        assertTrue(rate(.1)<2.0);assertTrue(rate(.4)>1000.0);assertTrue(rate(.6)>3500.0);assertEquals(6000.0,rate(.7))
+        assertEquals(.04,mapping.deadzone);assertEquals(1.7,mapping.curve)
+        assertEquals(0.0,mapping.responseMs);assertEquals(1.0,mapping.fullSpeedAt)
+        assertTrue(shapedPush(.1,mapping)*mapping.speed<60)
+        assertTrue(shapedPush(.5,mapping)*mapping.speed>1500)
+        assertEquals(6000.0,shapedPush(1.0,mapping)*mapping.speed)
         assertFails{validateSettings(Settings(profiles=listOf(Profile(mappings=defaultMappings().map{it.copy(curve=13.0)}))))}
         assertFails{validateSettings(Settings(profiles=listOf(Profile(mappings=defaultMappings().map{it.copy(fullSpeedAt=.1,deadzone=.1)}))))}
     }

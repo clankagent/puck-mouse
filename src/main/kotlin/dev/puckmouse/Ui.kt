@@ -44,6 +44,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.*
@@ -59,8 +61,9 @@ import java.awt.FileDialog
 import java.awt.Frame
 import java.nio.file.Path as FilePath
 import kotlin.math.abs
+import kotlin.math.atan2
 import kotlin.math.ceil
-import kotlin.math.pow
+import kotlin.math.hypot
 import kotlin.math.roundToInt
 import java.awt.event.KeyEvent as AwtKey
 
@@ -381,7 +384,7 @@ private fun MappingsScreen(state: AppState, controller: AppController, ask: (Dia
     }
     val list: @Composable (Modifier) -> Unit = { m -> MappingList(mappings, mapping.output, profile::tuningLinked, controller, m) { selected = it } }
     val editor: @Composable (Modifier) -> Unit = { m ->
-        MappingEditor(mapping, mappings, profile.tuningLinked(mapping.output), state.axes[mapping.axis], state.connected || state.preview,
+        MappingEditor(mapping, mappings, profile, state.axes, state.connected || state.preview,
             advanced, { advanced = it }, controller, m, compact)
     }
 
@@ -426,7 +429,7 @@ private fun StatusNotice(state: AppState, controller: AppController) {
     val shortcut = state.settings.hotkey.label
     when {
         state.preview -> Notice(Icons.Outlined.Science, PuckColors.Warm, "Preview sandbox · desktop output off",
-            "Drag the movement sliders under Live input to see how each mapping responds. Nothing is sent to Windows.")
+            "Drag the movement sliders under Live input to see how each mapping responds and which way the pointer heads. Nothing is sent to Windows.")
         !state.connected -> Notice(Icons.Outlined.BluetoothDisabled, PuckColors.Secondary, state.deviceName.ifBlank { "No SpaceMouse connected" },
             "Puck Mouse currently supports the 3Dconnexion SpaceMouse that identifies over Bluetooth as 256f:c63a. " +
                 "Pair it in Windows Bluetooth settings and it is picked up automatically. Other models aren't supported yet.") {
@@ -496,11 +499,15 @@ private fun MappingList(
 
 @Composable
 private fun MappingEditor(
-    m: Mapping, mappings: List<Mapping>, linked: Boolean, live: Double, hasLive: Boolean,
+    m: Mapping, mappings: List<Mapping>, profile: Profile, axes: Axes, hasLive: Boolean,
     advanced: Boolean, onAdvanced: (Boolean) -> Unit, controller: AppController, modifier: Modifier, compact: Boolean,
 ) {
     val update: (Mapping) -> Unit = { next -> if (next != m) controller.updateMapping(next) }
+    val linked = profile.tuningLinked(m.output)
     val partner = m.output.partner().label
+    val pointerX = profile.pointer(Output.POINTER_X)
+    val pointerY = profile.pointer(Output.POINTER_Y)
+    val combined = m.output.isPointer && profile.keepsDirection()
     Column(
         modifier.clip(MaterialTheme.shapes.medium).background(PuckColors.Surface).padding(if (compact) Space.l else Space.xl).testTag("mapping-editor"),
         verticalArrangement = Arrangement.spacedBy(Space.l),
@@ -514,9 +521,24 @@ private fun MappingEditor(
             if (m.output.isPointer) "Link pointer X/Y tuning" else "Link scroll X/Y tuning",
             (if (linked) "Speed, dead zone, curve, full-speed point and smoothing are shared with $partner."
             else "Turning on copies this tuning to $partner and keeps speed, dead zone, curve, full-speed point and smoothing shared.") +
-                " Movement, direction and on/off stay separate.",
+                " Movement, reverse direction and on/off stay separate.",
             linked, "link-tuning",
         ) { controller.setTuningLinked(m.output, it) }
+        if (m.output.isPointer) {
+            ToggleRow(
+                "Preserve pointer direction",
+                (if (profile.radialPointer) "How far you push in any direction sets the speed, and the pointer travels at the same angle as your hand. " +
+                    "Angles stay true when horizontal and vertical tuning match — linked tuning keeps them matched." +
+                    (if (!profile.pointerTuningMatched()) " Their tuning differs right now, which can change the angle of slanted moves noticeably." else "")
+                else "Horizontal and vertical are shaped separately, so slanted moves can bend toward straight lines.") +
+                    " Applies to both pointer directions.",
+                profile.radialPointer, "pointer-radial",
+            ) { controller.setRadialPointer(it) }
+            if (profile.radialPointer && pointerX.axis == pointerY.axis) {
+                InlineNote("Both pointer directions use ${pointerX.axis.label}. One movement can't point in two dimensions, " +
+                    "so each direction is shaped separately.")
+            }
+        }
         HorizontalDivider(color = PuckColors.Line)
 
         Field("Movement") {
@@ -539,22 +561,45 @@ private fun MappingEditor(
         val range = speedRange(m.output)
         LabeledSlider(
             label = "Top speed", value = speedText(m.output, m.speed), tag = "speed-slider",
-            caption = "Fastest ${if (m.output.isPointer) "pointer movement" else "scrolling"}, reached at the full-speed point" +
-                (if (m.fullSpeedAt < 1) " (${percent(m.fullSpeedAt)} push)." else " (full push)."),
+            caption = when {
+                !m.output.isPointer -> "Fastest scrolling"
+                combined && profile.pointerTuningMatched() -> "Fastest total pointer speed in any direction, diagonals included"
+                combined -> "Fastest pointer speed when moving straight ${if (m.output == Output.POINTER_X) "left or right" else "up or down"}; " +
+                    "slanted moves blend both directions' tuning"
+                else -> "Fastest ${if (m.output == Output.POINTER_X) "horizontal" else "vertical"} pointer speed; " +
+                    "slanted moves add both directions and can go faster"
+            } + ", reached at the full-speed point" + (if (m.fullSpeedAt < 1) " (${percent(m.fullSpeedAt)} push)." else " (full push)."),
             current = m.speed.toFloat().coerceIn(range), range = range,
         ) { update(m.copy(speed = roundSpeed(m.output, it.toDouble()))) }
 
         if (m.output.isPointer) {
+            val natural = naturalPointerTuning(m)
+            val naturalApplied = profile.radialPointer && profile.linkPointerTuning &&
+                listOf(pointerX, pointerY).all { naturalPointerTuning(it) == it }
             val preset = pointerTravelTuning(m)
             val applied = m.withTuningFrom(preset) == m
-            Column(verticalArrangement = Arrangement.spacedBy(Space.xs)) {
-                OutlinedButton(onClick = { controller.applyPointerTravelPreset(m.output) }, enabled = !applied, shape = MaterialTheme.shapes.small,
-                    modifier = Modifier.testTag("pointer-travel-preset")) {
-                    if (applied) { Icon(Icons.Outlined.Check, null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(Space.s)) }
-                    Text("Precision + fast travel")
+            Column(verticalArrangement = Arrangement.spacedBy(Space.s)) {
+                Wrap {
+                    Button(onClick = { controller.applyNaturalPointerPreset() }, enabled = !naturalApplied, shape = MaterialTheme.shapes.small,
+                        colors = ButtonDefaults.buttonColors(containerColor = PuckColors.Warm, contentColor = PuckColors.Background,
+                            disabledContainerColor = PuckColors.Selected, disabledContentColor = PuckColors.Foreground),
+                        modifier = Modifier.testTag("natural-pointer-preset")) {
+                        if (naturalApplied) { Icon(Icons.Outlined.Check, null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(Space.s)) }
+                        Text("Natural pointer")
+                    }
+                    OutlinedButton(onClick = { controller.applyPointerTravelPreset(m.output) }, enabled = !applied, shape = MaterialTheme.shapes.small,
+                        modifier = Modifier.testTag("pointer-travel-preset")) {
+                        if (applied) { Icon(Icons.Outlined.Check, null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(Space.s)) }
+                        Text("Precision + fast travel")
+                    }
                 }
-                Text("Slow and precise near center, ${speedText(m.output, preset.speed)} from a ${percent(preset.fullSpeedAt)} push" +
-                    (if (linked) " — applies to both pointer directions." else ".") + " Keeps movement, direction and on/off.",
+                Text("Natural pointer (recommended): gentle start with a ${percent(natural.deadzone)} dead zone and curve ${trimNumber(natural.curve)}, " +
+                    (if (natural.responseMs == 0.0) "no smoothing" else "${natural.responseMs.roundToInt()} ms smoothing") +
+                    ", up to ${speedText(m.output, natural.speed)}" + (if (natural.fullSpeedAt < 1) " from a ${percent(natural.fullSpeedAt)} push." else " at full push.") +
+                    " Sets both pointer directions, links their tuning and preserves pointer direction. Keeps movements, reversed directions and on/off.",
+                    style = MaterialTheme.typography.bodySmall, color = PuckColors.Secondary)
+                Text("Precision + fast travel: slow near center, ${speedText(m.output, preset.speed)} from a ${percent(preset.fullSpeedAt)} push" +
+                    (if (linked) " — applies to both pointer directions." else ".") + " Useful to compare; keeps movements, reversed directions, on/off and Preserve pointer direction.",
                     style = MaterialTheme.typography.bodySmall, color = PuckColors.Secondary)
             }
         } else {
@@ -593,7 +638,8 @@ private fun MappingEditor(
             Icon(if (advanced) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore, null, tint = PuckColors.Secondary)
         }
         if (advanced) {
-            CurvePreview(m, live, hasLive)
+            if (combined) CurvePreview(m, pointerMagnitude(profile, axes), hasLive, targetVector(profile, axes).length, profile.pointerTuningMatched())
+            else CurvePreview(m, axes[m.axis], hasLive)
             LabeledSlider("Dead zone", percent(m.deadzone), "deadzone-slider",
                 "Small movements inside this range are ignored, so a resting hand doesn't drift.",
                 m.deadzone.toFloat().coerceIn(0f, .5f), 0f..0.5f) {
@@ -625,31 +671,33 @@ private fun MappingEditor(
 /** Lowest valid full-speed point for a dead zone, rounded up to whole percent so it always passes validation. */
 private fun fullSpeedFloor(deadzone: Double): Double = ceil(maxOf(.1, deadzone + .05) * 100 - 1e-6) / 100
 
-/** Same normalized response the engine applies: dead zone, linear ramp to the full-speed point, then the curve exponent. */
-private fun response(x: Double, m: Mapping): Double {
-    val span = m.fullSpeedAt - m.deadzone
-    return if (x <= m.deadzone || span <= 0) 0.0 else ((x - m.deadzone) / span).coerceIn(0.0, 1.0).pow(m.curve)
-}
-
 private fun speedAt(x: Double, m: Mapping): String {
-    val v = response(x, m) * m.speed
+    val v = shapedPush(x, m) * m.speed
     return if (m.output.isPointer) "${v.roundToInt()} ${m.output.unit}" else "%.1f ${m.output.unit}".format(v)
 }
 
+/**
+ * [combinedSpeed] is set when the pointer keeps its direction: [live] is then the combined push of both pointer
+ * movements and the speed is the shaped pointer target from both directions, not this direction's share.
+ */
 @Composable
-private fun CurvePreview(m: Mapping, live: Double, hasLive: Boolean) {
+private fun CurvePreview(m: Mapping, live: Double, hasLive: Boolean, combinedSpeed: Double? = null, matched: Boolean = true) {
     val deflection = abs(live).coerceIn(0.0, 1.0)
     val samples = listOf(.1, .3, .6)
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Response shape", style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
-            if (hasLive) Text("Now: ${percent(deflection)} → ${speedAt(deflection, m)}",
-                style = MaterialTheme.typography.labelMedium.tabular(), color = PuckColors.Active)
+            if (hasLive) Text(
+                if (combinedSpeed != null) "Combined push ${percent(deflection)} → ${speedText(m.output, combinedSpeed)}"
+                else "Now: ${percent(deflection)} → ${speedAt(deflection, m)}",
+                style = MaterialTheme.typography.labelMedium.tabular(), color = PuckColors.Active,
+                modifier = Modifier.testTag("curve-live"))
         }
         Canvas(
             Modifier.fillMaxWidth().height(150.dp).clip(MaterialTheme.shapes.small).background(PuckColors.Background)
                 .semantics {
-                    contentDescription = "Response shape: dead zone ${percent(m.deadzone)}, curve ${"%.2f".format(m.curve)}, " +
+                    contentDescription = (if (combinedSpeed != null) "Response to combined push: " else "Response shape: ") +
+                        "dead zone ${percent(m.deadzone)}, curve ${"%.2f".format(m.curve)}, " +
                         "full speed ${speedText(m.output, m.speed)} from ${percent(m.fullSpeedAt)} push. " +
                         samples.joinToString { "${percent(it)} push gives ${speedAt(it, m)}" } + "."
                 },
@@ -671,12 +719,12 @@ private fun CurvePreview(m: Mapping, live: Double, hasLive: Boolean) {
             val path = Path()
             for (i in 0..200) {
                 val x = i / 200.0
-                val px = (x * w).toFloat(); val py = (h - response(x, m) * h).toFloat()
+                val px = (x * w).toFloat(); val py = (h - shapedPush(x, m) * h).toFloat()
                 if (i == 0) path.moveTo(px, py) else path.lineTo(px, py)
             }
             drawPath(path, PuckColors.Warm, style = Stroke(2.dp.toPx()))
             if (hasLive) {
-                val px = (deflection * w).toFloat(); val py = (h - response(deflection, m) * h).toFloat()
+                val px = (deflection * w).toFloat(); val py = (h - shapedPush(deflection, m) * h).toFloat()
                 drawLine(PuckColors.Active.copy(alpha = .5f), Offset(px, 0f), Offset(px, h), 1f)
                 drawCircle(PuckColors.Active, 5.dp.toPx(), Offset(px, py))
             }
@@ -684,11 +732,17 @@ private fun CurvePreview(m: Mapping, live: Double, hasLive: Boolean) {
         Row {
             Text("Center", style = MaterialTheme.typography.labelSmall, color = PuckColors.Secondary)
             Spacer(Modifier.weight(1f))
-            Text("Cap pushed →", style = MaterialTheme.typography.labelSmall, color = PuckColors.Secondary)
+            Text(if (combinedSpeed != null) "Combined push →" else "Cap pushed →", style = MaterialTheme.typography.labelSmall, color = PuckColors.Secondary)
         }
         Wrap {
             samples.forEach { x -> SpeedChip("${percent(x)} push", speedAt(x, m)) }
             SpeedChip("${percent(m.fullSpeedAt)}+ push", speedText(m.output, m.speed), highlight = true)
+        }
+        if (combinedSpeed != null) {
+            Text("Combined push is how far the cap is moved in any direction. It sets the pointer speed; your hand sets the direction. " +
+                if (matched) "Both pointer directions share this shape, so these speeds hold whichever way you push."
+                else "Horizontal and vertical tuning differ, so these speeds hold only for pushes straight along this direction.",
+                style = MaterialTheme.typography.bodySmall, color = PuckColors.Secondary)
         }
         Text("Shaded left: dead zone. Tinted right: full speed. Dashed: the same range with curve 1.",
             style = MaterialTheme.typography.bodySmall, color = PuckColors.Secondary)
@@ -761,6 +815,8 @@ private fun LiveInspector(state: AppState, controller: AppController, collapsibl
             }
         }
         HorizontalDivider(color = PuckColors.Line)
+        DirectionPreview(state)
+        HorizontalDivider(color = PuckColors.Line)
         SectionLabel("Output")
         Output.entries.forEach { o ->
             val m = mappings.firstOrNull { it.output == o }
@@ -778,6 +834,144 @@ private fun LiveInspector(state: AppState, controller: AppController, collapsibl
             else -> null
         }
         footnote?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = PuckColors.Secondary) }
+    }
+}
+
+/** Screen-space vector: +x right, +y down, matching pointer output. */
+private data class Vec(val x: Double, val y: Double) {
+    val length get() = hypot(x, y)
+    /** 0° right, 90° up. */
+    val degrees get() = (Math.toDegrees(atan2(-y, x)) + 360) % 360
+}
+
+private const val SQRT2 = 1.4142135623730951
+
+private fun Profile.pointer(o: Output) = mappings.first { it.output == o }
+
+/** Mirrors shapedOutputs: direction is only kept when the two pointer outputs read different movements. */
+private fun Profile.keepsDirection() = radialPointer && pointer(Output.POINTER_X).axis != pointer(Output.POINTER_Y).axis
+
+private fun Profile.pointerTuningMatched() = pointer(Output.POINTER_X).let { it.withTuningFrom(pointer(Output.POINTER_Y)) == it }
+
+/** Cap push as the pointer reads it: enabled pointer movements with reversal applied. */
+private fun capVector(p: Profile, axes: Axes): Vec {
+    fun read(o: Output) = p.pointer(o).let { if (!it.enabled) 0.0 else axes[it.axis] * if (it.inverted) -1.0 else 1.0 }
+    return Vec(read(Output.POINTER_X), read(Output.POINTER_Y))
+}
+
+/** Shaped pointer rate before smoothing, from the same shaping the engine is fed. */
+private fun targetVector(p: Profile, axes: Axes): Vec {
+    val shaped = shapedOutputs(p, axes)
+    return Vec(shaped[Output.POINTER_X.ordinal] * p.pointer(Output.POINTER_X).speed, shaped[Output.POINTER_Y.ordinal] * p.pointer(Output.POINTER_Y).speed)
+}
+
+private fun angleBetween(a: Vec, b: Vec): Double {
+    val d = abs(a.degrees - b.degrees) % 360
+    return if (d > 180) 360 - d else d
+}
+
+private fun degreesText(v: Vec) = "${v.degrees.roundToInt() % 360}°"
+
+private fun DrawScope.arrow(from: Offset, to: Offset, color: Color, width: Float) {
+    val d = to - from
+    val length = d.getDistance()
+    if (length < 1f) return
+    val u = d / length; val n = Offset(-u.y, u.x)
+    val head = minOf(length * .45f, width * 4f)
+    drawLine(color, from, to, width, StrokeCap.Round)
+    drawLine(color, to, to - u * head + n * (head * .6f), width, StrokeCap.Round)
+    drawLine(color, to, to - u * head - n * (head * .6f), width, StrokeCap.Round)
+}
+
+@Composable
+private fun DirectionPreview(state: AppState) {
+    val p = state.profile
+    val x = p.pointer(Output.POINTER_X); val y = p.pointer(Output.POINTER_Y)
+    Column(Modifier.fillMaxWidth().testTag("direction-preview"), verticalArrangement = Arrangement.spacedBy(Space.s)) {
+        Wrap {
+            SectionLabel("Pointer direction")
+            Text(when {
+                p.keepsDirection() -> if (p.pointerTuningMatched()) "· Radial response" else "· Radial · tuning differs"
+                p.radialPointer -> "· Separate axes (same movement)"
+                else -> "· Separate axes"
+            },
+                style = MaterialTheme.typography.labelMedium, color = PuckColors.Foreground, modifier = Modifier.testTag("direction-mode"))
+        }
+        if (!x.enabled && !y.enabled) {
+            Text("Both pointer outputs are off.", style = MaterialTheme.typography.bodySmall, color = PuckColors.Secondary)
+            return@Column
+        }
+        val cap = capVector(p, state.axes)
+        val target = targetVector(p, state.axes)
+        val top = listOf(x, y).filter { it.enabled }.maxOf { it.speed }.coerceAtLeast(1.0)
+        val hasCap = cap.length > 1e-6
+        val moving = target.length > 1e-6
+        val capText = if (hasCap) "${degreesText(cap)} · ${percent(minOf(cap.length, 1.0))} push" else "Centered"
+        val targetText = if (moving) "${degreesText(target)} · ${target.length.roundToInt()} px/s" else "Still"
+        val bend = if (hasCap && moving) angleBetween(cap, target) else 0.0
+        val (status, tone) = when {
+            !hasCap -> "Cap at center — push it to see a direction." to PuckColors.Secondary
+            !moving -> "Inside the dead zone — the pointer stays still." to PuckColors.Secondary
+            bend < .5 -> "Pointer follows the cap direction." to PuckColors.Active
+            else -> "Pointer bends ${maxOf(1, bend.roundToInt())}° away from the cap." to PuckColors.Paused
+        }
+        val dashed = PathEffect.dashPathEffect(floatArrayOf(6f, 5f))
+        Row(horizontalArrangement = Arrangement.spacedBy(Space.m), verticalAlignment = Alignment.CenterVertically) {
+            Canvas(
+                Modifier.size(112.dp).clip(MaterialTheme.shapes.small).background(PuckColors.Background)
+                    .semantics { contentDescription = "Direction preview. Cap direction $capText. Target pointer $targetText, before smoothing." },
+            ) {
+                val c = center
+                val half = size.minDimension / 2
+                // Ring marks full push and top speed; leave room for diagonals up to √2 of it.
+                val r = half * .68f
+                val hair = 1.dp.toPx()
+                drawLine(PuckColors.Line, Offset(0f, c.y), Offset(size.width, c.y), hair)
+                drawLine(PuckColors.Line, Offset(c.x, 0f), Offset(c.x, size.height), hair)
+                val d = half * .96f / SQRT2.toFloat()
+                val dotted = PathEffect.dashPathEffect(floatArrayOf(2f, 5f))
+                drawLine(PuckColors.Line, Offset(c.x - d, c.y - d), Offset(c.x + d, c.y + d), hair, pathEffect = dotted)
+                drawLine(PuckColors.Line, Offset(c.x - d, c.y + d), Offset(c.x + d, c.y - d), hair, pathEffect = dotted)
+                drawCircle(PuckColors.Track, r, c, style = Stroke(hair))
+                fun at(v: Vec, scale: Double): Offset {
+                    val k = minOf(v.length * scale, SQRT2) / v.length * r
+                    return Offset(c.x + (v.x * k).toFloat(), c.y + (v.y * k).toFloat())
+                }
+                if (hasCap) {
+                    val u = Offset((cap.x / cap.length).toFloat(), (cap.y / cap.length).toFloat())
+                    drawLine(PuckColors.Control, c, c + u * (half * .96f), 1.5.dp.toPx(), pathEffect = dashed)
+                    drawCircle(PuckColors.Control, 4.dp.toPx(), at(cap, 1.0), style = Stroke(1.5.dp.toPx()))
+                }
+                if (moving) arrow(c, at(target, 1.0 / top), PuckColors.Warm, 2.dp.toPx())
+                drawCircle(PuckColors.Control, 2.dp.toPx(), c)
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Space.s)) {
+                LegendItem("Cap direction", capText, "direction-cap") {
+                    drawLine(PuckColors.Control, Offset(0f, center.y), Offset(size.width, center.y), 1.5.dp.toPx(), pathEffect = dashed)
+                }
+                LegendItem("Target pointer", targetText, "direction-pointer") {
+                    arrow(Offset(0f, center.y), Offset(size.width, center.y), PuckColors.Warm, 2.dp.toPx())
+                }
+            }
+        }
+        Text(status, style = MaterialTheme.typography.bodySmall, color = tone, modifier = Modifier.testTag("direction-status"))
+        listOf(x, y).firstOrNull { !it.enabled }?.let {
+            Text("${it.output.label} is off, so the pointer moves along one line only.", style = MaterialTheme.typography.bodySmall, color = PuckColors.Secondary)
+        }
+        Text("0° is right, 90° is up. Target pointer is the direction and speed the response asks for, before smoothing." +
+            if (state.preview) " Preview only — nothing is sent to Windows." else "",
+            style = MaterialTheme.typography.bodySmall, color = PuckColors.Secondary)
+    }
+}
+
+@Composable
+private fun LegendItem(title: String, value: String, tag: String, swatch: DrawScope.() -> Unit) {
+    Row(Modifier.testTag(tag).semantics(mergeDescendants = true) {}, horizontalArrangement = Arrangement.spacedBy(Space.s)) {
+        Canvas(Modifier.padding(top = 3.dp).size(width = 16.dp, height = 12.dp), onDraw = swatch)
+        Column {
+            Text(title, style = MaterialTheme.typography.labelMedium)
+            Text(value, style = MaterialTheme.typography.labelSmall.tabular(), color = PuckColors.Secondary)
+        }
     }
 }
 
@@ -988,13 +1182,15 @@ private fun chooseFile(title: String, mode: Int, suggested: String? = null): Fil
 // Settings
 // ---------------------------------------------------------------------------------------------
 
+/** Pause first: it works alone and rarely clashes with typing. Every modifier is explicit so alternatives don't follow Hotkey defaults. */
 private val hotkeyPresets = listOf(
-    Hotkey(0x50, ctrl = true, alt = true),
-    Hotkey(0x20, ctrl = true, alt = true),
+    Hotkey(0x13, ctrl = false, alt = false, shift = false),
+    Hotkey(0x50, ctrl = true, alt = true, shift = false),
     Hotkey(0x78, ctrl = true, alt = false, shift = true),
-    Hotkey(0x13, ctrl = false, alt = false),
-    Hotkey(0x91, ctrl = false, alt = false),
+    Hotkey(0x20, ctrl = true, alt = true, shift = false),
+    Hotkey(0x91, ctrl = false, alt = false, shift = false),
 )
+private val recommendedHotkey = hotkeyPresets.first()
 
 @Composable
 private fun SettingsScreen(state: AppState, controller: AppController, compact: Boolean) {
@@ -1066,12 +1262,14 @@ private fun HotkeySection(state: AppState, controller: AppController, modifier: 
             hotkeyPresets.forEachIndexed { i, preset ->
                 FilterChip(
                     selected = preset == hotkey, onClick = { problem = null; if (preset != hotkey) controller.setHotkey(preset) },
-                    label = { Text(preset.label) }, modifier = Modifier.testTag("hotkey-preset-$i"),
+                    label = { Text(if (preset == recommendedHotkey) "${preset.label} · Recommended" else preset.label) },
+                    modifier = Modifier.testTag("hotkey-preset-$i"),
                     leadingIcon = if (preset == hotkey) ({ Icon(Icons.Outlined.Check, null, modifier = Modifier.size(16.dp)) }) else null,
                 )
             }
         }
-        Text("Use Ctrl, Alt or Shift with a letter, number or function key. Pause and Scroll Lock also work on their own. F12 is reserved by Windows.",
+        Text("Pause is recommended: it works on its own and rarely gets in the way of typing. Scroll Lock also works alone. " +
+            "Otherwise use Ctrl, Alt or Shift with a letter, number or function key. F12 is reserved by Windows.",
             style = MaterialTheme.typography.bodySmall, color = PuckColors.Secondary)
     }
 }
@@ -1144,7 +1342,7 @@ private fun ShortcutCapture(onCapture: (Hotkey) -> Unit, onProblem: (String) -> 
         verticalArrangement = Arrangement.spacedBy(Space.xs),
     ) {
         Text(if (held.isEmpty()) "Press the new shortcut…" else "$held + …", style = MaterialTheme.typography.titleMedium)
-        Text("Hold Ctrl, Alt or Shift and press a key. Esc cancels.", style = MaterialTheme.typography.bodySmall, color = PuckColors.Secondary)
+        Text("Press Pause or Scroll Lock, or hold Ctrl, Alt or Shift and press a key. Esc cancels.", style = MaterialTheme.typography.bodySmall, color = PuckColors.Secondary)
     }
 }
 

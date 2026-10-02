@@ -49,6 +49,7 @@ All sources are in `src/main/kotlin/dev/puckmouse/`.
 | `Model.kt` | Settings model, defaults, presets and the UI controller. |
 | `SettingsStore.kt` | Validation, migration of older settings files, and atomic save, import and export. |
 | `InputLogic.kt` | Report decoding, the neutral gate, wheel accumulation and button tracking. |
+| `PointerResponse.kt` | Radial pointer and independent scroll response shaping. |
 | `LiveMotion.kt` | Arming and report-gap handling between device input and output. |
 | `InputLoopTiming.kt` | Frame, device-refresh and feedback scheduling. |
 | `PuckEngine.kt` | DLL loading, checksum and ABI checks, and engine commands. |
@@ -59,6 +60,12 @@ All sources are in `src/main/kotlin/dev/puckmouse/`.
 Native transport, motion processing, output injection, settings and UI stay
 separate. All calls on a Puck handle, including destroying it, happen on the one
 dedicated input thread. The UI never holds an engine handle.
+
+The desktop adapter shapes normalized input into four independent output slots
+before Puck smooths and integrates velocity. A separate native ownership channel
+carries actual-neutral evidence, so a shaped zero inside a dead zone can't rearm
+output after interruption. Assigning the same physical axis to pointer and scroll
+doesn't couple their response curves.
 
 ## Behavior to preserve
 
@@ -89,6 +96,7 @@ dedicated input thread. The UI never holds an engine handle.
 - settings validation and migration
 - Windows registrations
 - UI interactions
+- pointer direction and speed across angles, report cadence, and settings migration
 
 To save screenshots from the UI tests, pass a directory:
 

@@ -38,7 +38,7 @@ can verify the files.
    **SpaceMouse Wireless · Bluetooth**. If it shows *Device needs a supported
    report profile*, Windows found a SpaceMouse that Puck Mouse can't use.
 2. Puck Mouse always starts **paused**. Click **Resume** or press
-   **Ctrl + Alt + P**.
+   **Pause**.
 3. Let go of the cap. Output begins once the cap rests at center, and the status
    changes from *Release the cap to resume* to *Active*.
 
@@ -56,9 +56,10 @@ and turn on **Reverse direction**. To experiment without a device, choose
 | Tilt sideways | Scroll horizontally (off until you turn it on) |
 | Button 1 | Left click, or hold to drag |
 | Button 2 | Pause and resume |
-| Ctrl + Alt + P | Pause and resume from any app |
+| Pause key | Pause and resume from any app |
 
-The pointer starts slowly near center and reaches top speed at a 70% push.
+The pointer responds to the direction you push, with a circular dead zone and
+a speed curve based on combined push. It reaches top speed at full push.
 Scrolling has a larger dead zone and a gentler curve. The
 [usage guide](docs/USAGE.md#defaults) has the exact values.
 
@@ -95,8 +96,10 @@ Select an output on the **Mappings** page. **Top speed** is always visible.
 
 To tune both directions together, turn on **Link pointer X/Y tuning** or
 **Link scroll X/Y tuning**. Movement, direction and on/off stay separate.
-Profiles from earlier versions keep their tuning. To switch to the current
-defaults, apply **Precision + fast travel** or **Gentle scrolling**.
+Use **Natural pointer** for the current pointer defaults. **Preserve pointer
+direction** switches between radial and independent axis response for comparison.
+Upgrades keep custom tuning; the previous factory pointer preset adopts the new
+shape. Scroll tuning stays as saved, with **Gentle scrolling** available as a preset.
 
 ## Settings, privacy and updates
 

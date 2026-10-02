@@ -19,6 +19,31 @@ class UiTest {
             ImageIO.write(captureToImage().toAwtImage(),"png",directory.resolve("$name.png").toFile())
         }
     }
+    @Test fun radialPreviewShowsArbitraryAnglesAndCanCompareTheOldResponse() = runDesktopComposeUiTest(width=1440,height=1050) {
+        AppController(SettingsStore(null),allowDesktopOutput=false).use { c ->
+            setContent { PuckMouseApp(c) }
+            c.setPreview(true)
+            waitUntil(timeoutMillis=5000) { c.state.value.preview }
+            val angle=Math.toRadians(30.0)
+            c.simulate(Axis.SLIDE_X,.5*kotlin.math.cos(angle))
+            c.simulate(Axis.SLIDE_Y,-.5*kotlin.math.sin(angle))
+            waitUntil(timeoutMillis=5000) { (c.state.value.outputs[Output.POINTER_Y]?:0.0)>0 }
+            onNodeWithTag("direction-preview").performScrollTo().assertIsDisplayed()
+            val rate=c.state.value.outputs
+            assertEquals(30.0,Math.toDegrees(kotlin.math.atan2(rate[Output.POINTER_Y]!!,rate[Output.POINTER_X]!!)),.01)
+            snapshot("natural-pointer-desktop")
+            onNodeWithTag("pointer-radial").performScrollTo().performClick()
+            waitUntil(timeoutMillis=5000) { !c.state.value.profile.radialPointer }
+            onNodeWithTag("direction-preview").performScrollTo()
+            snapshot("independent-pointer-desktop")
+            onNodeWithTag("natural-pointer-preset").performScrollTo().performClick()
+            assertTrue(c.state.value.profile.radialPointer);assertTrue(c.state.value.profile.linkPointerTuning)
+            assertEquals(defaultMappings().take(2),c.state.value.profile.mappings.take(2))
+            onNodeWithTag("natural-pointer-preset").assertIsNotEnabled()
+            onNodeWithTag("nav-settings").performClick()
+            onNodeWithTag("hotkey-preset-0").performScrollTo().assertTextEquals("Pause · Recommended")
+        }
+    }
     @Test fun nativePreviewShowsProcessedRatesAndShortcutCaptureRejectsReservedKeys() = runDesktopComposeUiTest(width=1440,height=900) {
         AppController(SettingsStore(null),allowDesktopOutput=false).use { controller ->
             setContent { PuckMouseApp(controller) }
@@ -37,7 +62,7 @@ class UiTest {
             onNodeWithTag("hotkey-record").performScrollTo().performClick()
             onNodeWithTag("hotkey-capture").performKeyInput { pressKey(Key.F12) }
             onNodeWithTag("hotkey-problem").assertExists()
-            assertEquals(0x50,controller.state.value.settings.hotkey.key)
+            assertEquals(0x13,controller.state.value.settings.hotkey.key)
             onNodeWithTag("hotkey-capture").performKeyInput {
                 keyDown(Key.CtrlLeft);keyDown(Key.ShiftLeft);pressKey(Key.F10);keyUp(Key.ShiftLeft);keyUp(Key.CtrlLeft)
             }
@@ -80,6 +105,12 @@ class UiTest {
     @Test fun profileDialogsSupportKeyboardAndPreserveIndependentSettings() = runDesktopComposeUiTest(width=1160,height=800) {
         AppController(SettingsStore(null),native=false).use { controller ->
             setContent { PuckMouseApp(controller) }
+            controller.setPreview(true)
+            controller.simulate(Axis.SLIDE_X,.43);controller.simulate(Axis.SLIDE_Y,-.25)
+            onNodeWithTag("direction-preview").performScrollTo().assertIsDisplayed()
+            onNodeWithTag("pause-toggle").assertIsDisplayed()
+            snapshot("natural-pointer-medium")
+            controller.setPreview(false)
             onNodeWithTag("nav-profiles").performClick()
             onNodeWithTag("profile-duplicate").performClick()
             onNodeWithTag("profile-name-field").performTextReplacement("Reading")
@@ -110,6 +141,16 @@ class UiTest {
             assertEquals(ButtonAction.PAUSE_HOLD,controller.state.value.profile.button2)
             snapshot("buttons-compact")
             onNodeWithTag("nav-mappings").performClick()
+            onNodeWithTag("pointer-radial").performScrollTo().assertIsDisplayed().performClick()
+            assertFalse(controller.state.value.profile.radialPointer)
+            onNodeWithTag("natural-pointer-preset").performScrollTo().performClick()
+            assertTrue(controller.state.value.profile.radialPointer)
+            controller.setPreview(true)
+            controller.simulate(Axis.SLIDE_X,.43);controller.simulate(Axis.SLIDE_Y,-.25)
+            snapshot("natural-pointer-compact")
+            onNodeWithTag("direction-preview").performScrollTo().assertIsDisplayed()
+            onNodeWithTag("pause-toggle").assertIsDisplayed()
+            snapshot("pointer-direction-compact")
             onNodeWithTag("mapping-SCROLL_Y").performScrollTo().performClick()
             controller.updateMapping(controller.state.value.profile.mappings[2].copy(deadzone=.2,curve=3.0))
             onNodeWithTag("link-tuning").performScrollTo().performClick()
@@ -130,6 +171,7 @@ class UiTest {
     }
     @Test fun linkedControlsShareExpandedTuningAndPresetKeepsDirection() = runDesktopComposeUiTest(width=1440,height=1050) {
         AppController(SettingsStore(null),native=false).use { c ->
+            c.setTuningLinked(Output.POINTER_X,false)
             setContent { PuckMouseApp(c) }
             onNodeWithTag("link-tuning").performClick()
             onNodeWithTag("advanced-toggle").performScrollTo().performClick()
@@ -140,9 +182,9 @@ class UiTest {
             assertTrue(c.state.value.profile.mappings[1].inverted)
             snapshot("linked-curve-desktop")
             onNodeWithTag("mapping-POINTER_Y").performClick()
-            onNodeWithTag("pointer-travel-preset").performScrollTo().performClick()
+            onNodeWithTag("natural-pointer-preset").performScrollTo().performClick()
             assertEquals(defaultMappings().take(2),c.state.value.profile.mappings.take(2))
-            onNodeWithTag("pointer-travel-preset").assertIsNotEnabled()
+            onNodeWithTag("natural-pointer-preset").assertIsNotEnabled()
             onNodeWithTag("link-tuning").performScrollTo().performSemanticsAction(SemanticsActions.RequestFocus){it()}
             onNodeWithTag("link-tuning").performKeyInput { pressKey(Key.Spacebar) }
             assertFalse(c.state.value.profile.linkPointerTuning)
@@ -152,6 +194,7 @@ class UiTest {
     }
     @Test fun compactCurveControlsRemainAccessibleAndMaintainValidKnee() = runDesktopComposeUiTest(width=390,height=844) {
         AppController(SettingsStore(null),native=false).use { c ->
+            c.setTuningLinked(Output.POINTER_X,false)
             setContent { PuckMouseApp(c) }
             onNodeWithTag("link-tuning").performScrollTo().performClick()
             snapshot("linked-compact")
