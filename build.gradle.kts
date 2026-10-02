@@ -1,4 +1,5 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
+import org.jetbrains.compose.desktop.application.tasks.AbstractJLinkTask
 
 plugins {
     kotlin("jvm") version "2.4.20"
@@ -6,7 +7,7 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose") version "2.4.20"
     id("org.jetbrains.compose") version "1.12.1"
 }
-version = "0.1.6-alpha.1"
+version = "0.1.7-alpha.1"
 val generateAppVersion = tasks.register("generateAppVersion") {
     val appVersion = project.version.toString()
     val destination = layout.buildDirectory.file("generated/app-version/puckmouse-version.txt")
@@ -17,12 +18,16 @@ val generateAppVersion = tasks.register("generateAppVersion") {
     }
 }
 tasks.processResources { from(generateAppVersion) }
+// Compress the bundled Java modules while retaining the existing module set.
+tasks.withType<AbstractJLinkTask>().configureEach {
+    freeArgs.add("--compress=2")
+}
 repositories { google(); mavenCentral() }
 kotlin { jvmToolchain(21) }
 dependencies {
     implementation(compose.desktop.currentOs)
     implementation(compose.material3)
-    implementation(compose.materialIconsExtended)
+    implementation("org.jetbrains.compose.material:material-icons-core:1.7.3")
     implementation("net.java.dev.jna:jna:5.19.1")
     implementation("net.java.dev.jna:jna-platform:5.19.1")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")

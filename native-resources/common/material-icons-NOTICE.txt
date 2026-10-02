@@ -1,0 +1,14 @@
+Material icon subset
+
+Copyright 2024 The Android Open Source Project
+Licensed under the Apache License, Version 2.0; see material-icons-LICENSE.txt.
+
+Puck Mouse contains fifteen outlined icon definitions from the 1.7.3 sources
+of org.jetbrains.compose.material material-icons-extended-desktop and
+material-icons-core-desktop. Original source archives:
+https://repo.maven.apache.org/maven2/org/jetbrains/compose/material/material-icons-extended-desktop/1.7.3/material-icons-extended-desktop-1.7.3-sources.jar
+https://repo.maven.apache.org/maven2/org/jetbrains/compose/material/material-icons-core-desktop/1.7.3/material-icons-core-desktop-1.7.3-sources.jar
+
+The source package was changed to dev.puckmouse.icons and a provenance comment
+was added. Vector definitions, icon names and copyright/license headers are
+preserved without other changes.

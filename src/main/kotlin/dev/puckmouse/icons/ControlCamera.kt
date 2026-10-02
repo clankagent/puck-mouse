@@ -1,0 +1,71 @@
+/*
+ * Copyright 2024 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+// Vendored from Compose Material icons 1.7.3; package changed for Puck Mouse.
+package dev.puckmouse.icons
+
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.materialIcon
+import androidx.compose.material.icons.materialPath
+import androidx.compose.ui.graphics.vector.ImageVector
+
+public val Icons.Outlined.ControlCamera: ImageVector
+    get() {
+        if (_controlCamera != null) {
+            return _controlCamera!!
+        }
+        _controlCamera = materialIcon(name = "Outlined.ControlCamera") {
+            materialPath {
+                moveTo(5.54f, 8.46f)
+                lineTo(2.0f, 12.0f)
+                lineToRelative(3.54f, 3.54f)
+                lineToRelative(1.76f, -1.77f)
+                lineTo(5.54f, 12.0f)
+                lineToRelative(1.76f, -1.77f)
+                close()
+                moveTo(12.0f, 18.46f)
+                lineToRelative(-1.77f, -1.76f)
+                lineToRelative(-1.77f, 1.76f)
+                lineTo(12.0f, 22.0f)
+                lineToRelative(3.54f, -3.54f)
+                lineToRelative(-1.77f, -1.76f)
+                close()
+                moveTo(18.46f, 8.46f)
+                lineToRelative(-1.76f, 1.77f)
+                lineTo(18.46f, 12.0f)
+                lineToRelative(-1.76f, 1.77f)
+                lineToRelative(1.76f, 1.77f)
+                lineTo(22.0f, 12.0f)
+                close()
+                moveTo(8.46f, 5.54f)
+                lineToRelative(1.77f, 1.76f)
+                lineTo(12.0f, 5.54f)
+                lineToRelative(1.77f, 1.76f)
+                lineToRelative(1.77f, -1.76f)
+                lineTo(12.0f, 2.0f)
+                close()
+            }
+            materialPath {
+                moveTo(12.0f, 12.0f)
+                moveToRelative(-3.0f, 0.0f)
+                arcToRelative(3.0f, 3.0f, 0.0f, true, true, 6.0f, 0.0f)
+                arcToRelative(3.0f, 3.0f, 0.0f, true, true, -6.0f, 0.0f)
+            }
+        }
+        return _controlCamera!!
+    }
+
+private var _controlCamera: ImageVector? = null

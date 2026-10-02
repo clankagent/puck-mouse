@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.7-alpha.1
+
+- Reduce installer size by bundling only the fifteen Material icons used by the
+  app and compressing the included Java runtime. Icons keep their existing
+  appearance; installation still includes Java.
+
 ## 0.1.6-alpha.1
 
 - Use the Pause key as the default global pause/resume shortcut. Upgrades replace

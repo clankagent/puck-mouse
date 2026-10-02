@@ -22,6 +22,13 @@ The packaging tasks write the app image and installers to
 `build/compose/binaries/main/` (`app/`, `msi/` and `exe/`). The installers
 include a Java runtime, so end users don't need to install Java.
 
+The runtime is linked with ZIP resource compression (`--compress=2`). The UI
+includes only its fifteen outlined Material icon definitions, copied from the
+pinned Compose Material 1.7.3 sources in `src/main/kotlin/dev/puckmouse/icons/`.
+Their Apache license and provenance notice ship with the app. When adding an
+icon, include its source and attribution instead of bundling the extended icon
+catalogue.
+
 `run` starts the real app. Once resumed, it controls the desktop pointer. To run
 it without desktop output, use QA mode (see below).
 
