@@ -24,8 +24,8 @@ fun main(args: Array<String>) {
             check(frame[Output.SCROLL_Y]!!>0);e.interrupt(17.0);e.feed(18.0,Axes(rz=.5));check(e.frame(32.0).values.all{it==0.0})
         }
         val result=args.lastOrNull()?.takeIf{it.endsWith(".txt")}
-        if(result!=null)Files.writeString(Path.of(result),"Puck Mouse bundled runtime / DLL self-test passed")
-        println("Puck Mouse DLL and pause self-test passed");return
+        if(result!=null)Files.writeString(Path.of(result),"Puck Mouse ${AppVersion.value} bundled runtime / DLL self-test passed")
+        println("Puck Mouse ${AppVersion.value} DLL and pause self-test passed");return
     }
     val qa=args.contains("--qa") || System.getProperty("puckmouse.qa")=="true" || System.getenv("PUCK_MOUSE_QA")=="1"
     // A second process must never inject duplicate motion or compete for registrations.

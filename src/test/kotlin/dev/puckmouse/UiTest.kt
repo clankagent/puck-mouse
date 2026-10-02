@@ -32,7 +32,9 @@ class UiTest {
             snapshot("processing-error-desktop")
             onNodeWithTag("error-dismiss").performClick()
             onNodeWithTag("nav-settings").performClick()
-            onNodeWithTag("hotkey-record").performClick()
+            onNodeWithTag("app-version").performScrollTo().assertIsDisplayed().assertTextEquals("Puck Mouse ${AppVersion.value}")
+            snapshot("version-desktop")
+            onNodeWithTag("hotkey-record").performScrollTo().performClick()
             onNodeWithTag("hotkey-capture").performKeyInput { pressKey(Key.F12) }
             onNodeWithTag("hotkey-problem").assertExists()
             assertEquals(0x50,controller.state.value.settings.hotkey.key)
@@ -102,6 +104,7 @@ class UiTest {
             onNodeWithTag("hotkey-preset-2").performScrollTo().performClick()
             assertEquals(Hotkey(key=0x78,ctrl=true,alt=false,shift=true),controller.state.value.settings.hotkey)
             onNodeWithTag("pause-toggle").assertIsDisplayed()
+            onNodeWithTag("app-version").performScrollTo().assertIsDisplayed().assertTextEquals("Puck Mouse ${AppVersion.value}")
             snapshot("settings-compact")
         }
     }

@@ -87,6 +87,8 @@ input registrations and exit. Automatic startup is not registered.
 Settings stay locally in `%APPDATA%/PuckMouse/settings.json`. Import/export files
 contain profiles and preferences, with no recordings or device paths. The app has
 no telemetry, account requirement, network service or cloud synchronization.
+The installed version is shown in **Settings → About** and can be selected to
+copy. There is no update checker.
 
 ## Build
 

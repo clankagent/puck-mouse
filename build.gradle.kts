@@ -6,6 +6,17 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose") version "2.4.20"
     id("org.jetbrains.compose") version "1.12.1"
 }
+version = "0.1.4-alpha.1"
+val generateAppVersion = tasks.register("generateAppVersion") {
+    val appVersion = project.version.toString()
+    val destination = layout.buildDirectory.file("generated/app-version/puckmouse-version.txt")
+    inputs.property("appVersion", appVersion)
+    outputs.file(destination)
+    doLast {
+        destination.get().asFile.apply { parentFile.mkdirs(); writeText(appVersion) }
+    }
+}
+tasks.processResources { from(generateAppVersion) }
 repositories { google(); mavenCentral() }
 kotlin { jvmToolchain(21) }
 dependencies {
@@ -29,7 +40,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Msi, TargetFormat.Exe)
             packageName = "PuckMouse"
-            packageVersion = "0.1.3"
+            packageVersion = project.version.toString().substringBefore('-')
             description = "Configure a SpaceMouse for everyday pointing and scrolling"
             vendor = "Puck Mouse contributors"
             modules("java.desktop", "jdk.unsupported")

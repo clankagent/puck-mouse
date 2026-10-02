@@ -10,6 +10,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -996,7 +997,7 @@ private fun SettingsScreen(state: AppState, controller: AppController, compact: 
         Section("Safety", sectionWidth) {
             Bullet("Always starts paused. Nothing moves until you choose Resume.")
             Bullet("After a pause, disconnect or settings change, output waits until the cap is released to center.")
-            Bullet("Held clicks are released whenever output stops.")
+            Bullet("Held clicks are released on pause, disconnect or mapping changes.")
             Bullet("Never starts with Windows on its own, and has no account, telemetry or network features.")
         }
         Section("Supported hardware", sectionWidth) {
@@ -1006,6 +1007,12 @@ private fun SettingsScreen(state: AppState, controller: AppController, compact: 
         Section("Storage", sectionWidth) {
             Text("Settings save automatically on this computer as you change them.", style = MaterialTheme.typography.bodyMedium, color = PuckColors.Secondary)
             SaveIndicator(state)
+        }
+        Section("About", sectionWidth) {
+            SelectionContainer {
+                Text("Puck Mouse ${AppVersion.value}", style = MaterialTheme.typography.bodyMedium,
+                    color = PuckColors.Secondary, modifier = Modifier.testTag("app-version"))
+            }
         }
     }
 }

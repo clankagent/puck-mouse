@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.4-alpha.1
+
+- Show the full installed application version in Settings → About, including
+  the preview suffix. The version is selectable for copying.
+- Generate the displayed version and installer version from the same build value.
+  No update checker or network requests are added.
+
 ## 0.1.3-alpha.1
 
 - Stop brief gaps in motion reports from triggering “Release the cap to resume.”
