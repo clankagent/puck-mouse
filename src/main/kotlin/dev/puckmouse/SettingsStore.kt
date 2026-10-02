@@ -45,14 +45,14 @@ class SettingsStore(private val path: Path?) {
         val root=json.parseToJsonElement(Files.readString(file)).jsonObject
         val schema=root["schema"]?.jsonPrimitive?.int ?: 1
         require(schema in 1..2) { "Unsupported settings version" }
-        val normalized=if(schema==1) {
-            // V1 omitted default-valued fields. Materialize its old defaults before decoding.
-            val profiles=root["profiles"]?.jsonArray ?: buildJsonArray {add(json.encodeToJsonElement(Profile(mappings=legacyMappings())))}
-            JsonObject(root+mapOf("schema" to JsonPrimitive(2),"profiles" to JsonArray(profiles.map { item ->
-                val profile=item.jsonObject
-                if("mappings" in profile)profile else JsonObject(profile+("mappings" to json.encodeToJsonElement(legacyMappings())))
-            })))
-        } else root
+        // Preserve omitted old defaults in saved/imported profiles. New settings
+        // encode all values, so later defaults cannot silently retune them.
+        val savedDefaults=legacyMappings().map {if(schema==2 && it.output.name.startsWith("POINTER"))pointerTravelTuning(it) else it}
+        val profiles=root["profiles"]?.jsonArray ?: buildJsonArray {add(json.encodeToJsonElement(Profile(mappings=savedDefaults)))}
+        val normalized=JsonObject(root+mapOf("schema" to JsonPrimitive(2),"profiles" to JsonArray(profiles.map { item ->
+            val profile=item.jsonObject
+            if("mappings" in profile)profile else JsonObject(profile+("mappings" to json.encodeToJsonElement(savedDefaults)))
+        })))
         return validateSettings(json.decodeFromJsonElement<Settings>(normalized))
     }
     fun save(settings: Settings) { if(path!=null) {

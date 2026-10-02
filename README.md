@@ -74,6 +74,12 @@ The chart and sample speeds show both effects together. Existing profiles keep
 their tuning on upgrade; choose **Precision + fast travel** to apply the new
 pointer defaults while retaining movement assignments and direction.
 
+New scroll defaults use a 14% dead zone and exponent 1.7, gentler than the
+pointer curve, with full speed at full push. Existing profiles retain their
+tuning. Choose **Gentle scrolling** on a scroll output to apply the new shape
+without changing its speed, smoothing, movement assignment or direction. If
+scroll tuning is linked, the preset applies to both directions.
+
 Choose **Try without device** to inspect mappings in preview mode. Its sliders
 are simulated cap deflections; they cannot move the system cursor or scroll other
 applications. Leaving preview returns to paused mode.

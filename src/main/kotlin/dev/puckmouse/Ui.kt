@@ -557,6 +557,18 @@ private fun MappingEditor(
                     (if (linked) " — applies to both pointer directions." else ".") + " Keeps movement, direction and on/off.",
                     style = MaterialTheme.typography.bodySmall, color = PuckColors.Secondary)
             }
+        } else {
+            val applied = gentleScrollTuning(m) == m
+            Column(verticalArrangement = Arrangement.spacedBy(Space.xs)) {
+                OutlinedButton(onClick = { controller.applyGentleScrollPreset(m.output) }, enabled = !applied, shape = MaterialTheme.shapes.small,
+                    modifier = Modifier.testTag("gentle-scroll-preset")) {
+                    if (applied) { Icon(Icons.Outlined.Check, null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(Space.s)) }
+                    Text("Gentle scrolling")
+                }
+                Text("14% dead zone, curve 1.7 and full speed at full push" +
+                    (if (linked) " — applies to both scroll directions." else ".") + " Keeps speed, smoothing and movement assignments.",
+                    style = MaterialTheme.typography.bodySmall, color = PuckColors.Secondary)
+            }
         }
 
         ToggleRow("Reverse direction", "Use this if ${m.output.effectNoun()} moves the opposite way to your hand.", m.inverted, "invert-toggle") {

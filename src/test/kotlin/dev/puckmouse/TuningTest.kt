@@ -7,6 +7,39 @@ import java.nio.file.Path
 import kotlin.math.pow
 
 class TuningTest {
+    @Test fun gentleScrollDefaultsRejectSmallDeflectionsAndUseAMilderCurveThanPointer() {
+        val scroll=defaultMappings()[2]
+        assertEquals(.14,scroll.deadzone);assertEquals(1.7,scroll.curve)
+        assertEquals(.14,defaultMappings()[3].deadzone);assertEquals(1.7,defaultMappings()[3].curve)
+        assertTrue(scroll.curve<defaultMappings()[0].curve)
+        val profile=Profile(mappings=defaultMappings().map{it.copy(responseMs=0.0)})
+        PuckEngine(profile,Path.of(System.getProperty("puck.dll"))).use {engine ->
+            engine.frame(0.0)
+            for((i,amount) in listOf(0.0,.1,.14,.2,.5,1.0,-.1,-.14,-.2,-.5,-1.0).withIndex()) {
+                engine.feed(i.toDouble(),Axes(rz=amount))
+                val expected=((kotlin.math.abs(amount)-.14)/.86).coerceIn(0.0,1.0).pow(1.7)*12*(if(amount<0)-1 else 1)
+                assertEquals(expected,engine.rates()[Output.SCROLL_Y]!!,1e-8)
+            }
+        }
+    }
+    @Test fun savedScrollDefaultsAndCustomValuesSurviveTheNewDefaults() {
+        val file=Files.createTempFile("puck-scroll-migration-",".json")
+        try {
+            val store=SettingsStore(file)
+            for(schema in 1..2) {
+                Files.writeString(file,"""{"schema":$schema,"profiles":[{"id":"saved","name":"Saved"}],"selectedId":"saved"}""")
+                val old=store.read(file).profiles[0].mappings
+                assertEquals(.08,old[2].deadzone);assertEquals(1.25,old[2].curve)
+                assertEquals(.08,old[3].deadzone);assertEquals(1.4,old[3].curve)
+                assertEquals(if(schema==1)1.4 else 2.6,old[0].curve)
+            }
+            val saved=Settings(profiles=listOf(Profile(mappings=legacyMappings().map {
+                if(it.output==Output.SCROLL_Y)it.copy(deadzone=.19,curve=2.2,speed=17.0)else it
+            })))
+            store.write(file,saved);assertEquals(saved,store.read(file))
+            assertEquals(1.25,legacyMappings()[2].curve)
+        } finally {Files.deleteIfExists(file)}
+    }
     @Test fun linkingCopiesSelectedTuningAndPreservesAssignmentsAndDirection() {
         AppController(SettingsStore(null),native=false).use {c ->
             c.updateMapping(c.state.value.profile.mappings[0].copy(speed=8500.0,curve=5.0,fullSpeedAt=.6))

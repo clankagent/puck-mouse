@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.5-alpha.1
+
+- Increase new scroll defaults to a 14% dead zone and exponent 1.7 for both
+  directions, with full speed at full push. Pointer tuning remains exponent 2.6.
+- Add a Gentle scrolling preset for existing profiles. It changes dead zone,
+  curve and full-speed point while preserving speed, smoothing and assignments.
+- Preserve saved scroll tuning, including omitted defaults in older profile files.
+
 ## 0.1.4-alpha.1
 
 - Show the full installed application version in Settings → About, including
